@@ -1,0 +1,33 @@
+# The repository is public. The tooling and process configuration that drive it are not,
+# and must never be committed here.
+.claude/
+.claude-flow/
+.packs.yaml
+CLAUDE.md
+GEMINI.md
+AGENTS.md
+
+# Build
+build/
+out/
+cmake-build-*/
+compile_commands.json
+.cache/
+
+# Media and ROMs — never, under any circumstance (ADR-ROM-03 D1)
+*.adf
+*.adz
+*.dms
+*.hdf
+*.ipf
+*.scp
+*.rom
+*.key
+roms/
+media/
+
+# Editors and platforms
+.DS_Store
+.idea/
+.vscode/
+*.swp
