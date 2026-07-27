@@ -2,7 +2,7 @@
 
 | | |
 |---|---|
-| **Status** | Draft — under review, gates every CPU implementation story |
+| **Status** | **Accepted** 2026-07-27 — implementation may start, subject to §11.2 |
 | **Date** | 2026-07-27 |
 | **Implements** | [ADR-CPU-02](../adr/ADR-CPU-02-68k-core-strategy.md) D1, D3, D5 · specification §2.2 |
 | **Governs** | `core/cpu` — the instruction table, the generator, and the shape of every handler |
@@ -486,6 +486,26 @@ open, and the PO may either accept on the strength of this pass or hold it for a
 independent reading. The transcription work (§8) will exercise §4's schema against the
 manual line by line, which is itself a strong second check — but it happens *after*
 acceptance, so accepting now trades a little risk for unblocking the CPU epic.
+
+### 11.2 Accepted — 2026-07-27
+
+Accepted by the Product Owner on the strength of §11.1. **The independent second-reader
+condition in §11 was knowingly waived**, not met; the trade was recorded before the decision
+rather than discovered afterwards.
+
+Two things stand in its place, and neither is optional:
+
+1. **The transcription (§8) is the deferred second reading.** Working §4's schema against
+   the *M68000PRM* line by line is a stronger check than a review pass would have been. Any
+   place the schema cannot express what the manual says is a finding against this spike, and
+   it comes back here as an amendment rather than being worked around in the table.
+2. **The micro-op question must settle before the generator is built.** It is an open
+   investigation on [ADR-ACCEL-07](../adr/ADR-ACCEL-07-cpu-and-chipset-acceleration.md) D6
+   and it changes what §6.1 emits. Accepting this spike does not pre-empt it — implementation
+   of the generator waits on that decision even though the schema is now settled.
+
+So "accepted" here means the **schema** is settled and may be built against. It does not
+mean §6.1's output format is final.
 
 ## 12. Open decisions
 

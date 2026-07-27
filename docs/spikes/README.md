@@ -12,7 +12,7 @@ guessed constant in a foundational table is worse than an admitted gap.
 | Spike | Covers | Status |
 |-------|--------|--------|
 | [SPIKE-S0](SPIKE-S0-core-timeline.md) | The core timeline: event scheduler, DMA slot allocator, bus arbitration | Draft |
-| [SPIKE-S1](SPIKE-S1-m68k-instruction-table.md) | The 68k instruction table schema and its build-time generator | Draft |
+| [SPIKE-S1](SPIKE-S1-m68k-instruction-table.md) | The 68k instruction table schema and its build-time generator | Accepted |
 
 ## Status vocabulary
 
