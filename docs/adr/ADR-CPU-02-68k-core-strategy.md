@@ -68,7 +68,8 @@ modern desktop CPU's budget. The JIT exists for accelerated AGA configurations.
 ## Consequences
 
 - The generator is a build dependency and a piece of software in its own right, with its
-  own tests. Generated sources are not committed; the table is the source of truth.
+  own tests. Generated sources are not committed; the table is the source of truth. Its
+  design is [SPIKE-S1](../spikes/SPIKE-S1-m68k-instruction-table.md).
 - Differential testing (D2) needs the fast tier to be steppable in lockstep with the
   interpreter, which constrains the JIT's block granularity. This is a known cost of the
   deferral and is recorded as an open decision in ADR-CORE-01.
