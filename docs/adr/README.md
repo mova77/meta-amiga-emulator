@@ -14,13 +14,19 @@ Numbers are allocated once and never reused.
 | [ADR-PORT-04](ADR-PORT-04-portability-and-backends.md) | A freestanding core behind explicit ports; SDL3 as the reference backend | Accepted |
 | [ADR-TEST-05](ADR-TEST-05-compatibility-measurement.md) | Compatibility is a measured number, not a claim | Accepted |
 | [ADR-PERF-06](ADR-PERF-06-optimisation-policy.md) | Optimisation policy: C++23 by default, SIMD by measurement, assembly by exception | Accepted |
+| [ADR-ACCEL-07](ADR-ACCEL-07-cpu-and-chipset-acceleration.md) | Acceleration strategy: event-bounded batching first, translation last | Accepted |
 
 ## Reading order
 
 ADR-CORE-01 first — every other decision here is downstream of the timing model. Then
-ADR-PORT-04 for the module boundaries, ADR-CPU-02 for the core that fills them,
-ADR-TEST-05 for how any of it is shown to work, and ADR-PERF-06 for what may be done to
-make it fast. ADR-ROM-03 stands alone and is mostly a licensing boundary.
+ADR-PORT-04 for the module boundaries, ADR-CPU-02 for the core that fills them, and
+ADR-TEST-05 for how any of it is shown to work.
+
+Performance is two documents: ADR-PERF-06 is the **policy** — what may be done and what
+evidence a change must carry — and ADR-ACCEL-07 is the **strategy**, where the speed is
+expected to come from and which attractive routes are dead ends. Read the policy first.
+
+ADR-ROM-03 stands alone and is mostly a licensing boundary.
 
 ## Status vocabulary
 
