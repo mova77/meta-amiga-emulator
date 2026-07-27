@@ -76,10 +76,18 @@ The cost: the table is slightly noisier to read than TOML would be, and designat
 initialisers are doing a lot of the work of keeping it readable. Accepted.
 
 **Rejected alternative — pure `constexpr`/template expansion with no generator at all.**
-Elegant, and it removes the build step entirely. It also instantiates tens of thousands of
-handler bodies through the template machinery, which pushes compile times into the tens of
-minutes and is where MSVC gives up. It also produces generated code that cannot be read
-when debugging a flag bug, which is exactly when you need to read it.
+Elegant, and it removes the build step entirely. But driving the expansion from the table
+inside the type system means the dispatch table must be built at compile time from
+`constexpr` recursion over the whole 65 536-entry space, and the disjointness and coverage
+proofs (§6.2) become `static_assert`s whose failure messages cannot name the two conflicting
+declarations — which is the single most useful thing those proofs produce.
+
+**Cost of the choice: cross-compilation.** A generator that runs at build time is a *host*
+tool, so any cross-compiled build (Windows-on-ARM from x64, or a future handheld target)
+must build the generator for the host toolchain and the emulator for the target. That is a
+standard CMake pattern and a solved problem, but it is real work that a header-only design
+would not have needed, and it belongs in the build story rather than being discovered by
+whoever first cross-compiles.
 
 ---
 
@@ -143,21 +151,56 @@ So the schema names effects:
 
 ```cpp
 enum class FlagEffect : u8 {
+    // Core — the effects most instructions use.
     Unaffected,
-    Set,             // set to 1
-    Cleared,         // set to 0
-    FromResult,      // N: sign of result; Z: result == 0
-    FromCarry,       // C/X: carry or borrow out
-    FromOverflow,    // V: signed overflow
-    ClearedIfNonZero // Z on ADDX/SUBX/ABCD/SBCD/NEGX — cleared if non-zero, else held
+    Set,                  // forced to 1
+    Cleared,              // forced to 0
+    FromResult,           // N: sign of result; Z: result == 0
+    FromCarry,            // C/X: carry or borrow out
+    FromOverflow,         // V: signed overflow
+    ClearedIfNonZero,     // Z on ADDX/SUBX/ABCD/SBCD/NBCD/NEGX — cleared if non-zero, else held
+
+    // Group-specific — each is used by a small, closed set of instructions, and each
+    // exists because no combination of the core effects expresses it.
+    Undefined,            // documented as undefined; the hardware still produces a value (§4.3.1)
+    FromShiftOut,         // X/C from the last bit shifted out; C cleared when the count is zero
+    FromExtend,           // C ← X. ROXL/ROXR with a zero shift count
+    FromShiftSignChange,  // V on ASL: set if the sign bit changed at any point during the shift
+    FromTestedBit,        // Z on BTST/BCHG/BCLR/BSET: set from the complement of the tested bit
+    Replaced,             // the whole CCR is loaded: MOVE to CCR/SR, ANDI/ORI/EORI to CCR/SR, RTE, RTR
 };
 
 struct FlagEffects { FlagEffect x, n, z, v, c; };
 ```
 
-Every one of the seven is a distinct code path in the generated handler, written once. The
-list is deliberately closed: an instruction whose flag behaviour does not fit is a signal to
-extend the vocabulary with a reviewed addition, not to inline a lambda into the table.
+**The vocabulary is closed, but not at seven.** The first review pass of this spike proposed
+seven and it did not survive contact with the instruction set — six more were needed, and
+finding them is the argument for the approach rather than against it. A bitmask would have
+recorded "affected" for every one of them and lost the distinction in each case.
+
+Closed means: adding a value requires the same review as adding an instruction form, and an
+instruction whose behaviour does not fit is never handled by inlining a lambda into the
+table. The group-specific values are deliberately narrow — `FromTestedBit` serves exactly
+four instructions — because a general "arbitrary expression" escape hatch would put
+semantics back in the table, which is what the design exists to prevent.
+
+#### 4.3.1 `Undefined` is a determinism hazard, not a licence
+
+Six instruction groups have flags the manuals call undefined — `N` and `V` after
+`ABCD`/`SBCD`/`NBCD`, `N` and `Z` after a `DIVU`/`DIVS` that overflows, and several flags
+after `CHK`, among others.
+
+"Undefined" is a statement about what Motorola guarantees, **not** about what the silicon
+does. The hardware produces a specific, repeatable value, and software occasionally depends
+on it by accident. ADR-CORE-01 D6 makes determinism a correctness property, so the emulator
+cannot leave these bits arbitrary, cannot leave them uninitialised, and must not let them
+vary by host or build.
+
+So `Undefined` in the table means *"the manual does not specify this; the measured hardware
+behaviour is recorded alongside, per model"* — and measuring it is a transcription work item
+(§8). Until it is measured, an `Undefined` flag is written as a fixed documented placeholder
+and the placeholder is listed in the coverage report, so the gap is visible rather than
+silently baked in.
 
 ### 4.4 Per-model divergence is rows
 
@@ -218,16 +261,38 @@ And `ADDX` also lives on line D:
 
 Read the bits carefully: `ADDX`'s `1ss` is the *same field* as `ADD`'s opmodes
 `100`/`101`/`110`, and its `00m` sits exactly where `ADD`'s **EA mode field** sits — taking
-mode `000` (`Dn`) and mode `001` (`An`).
+mode `000` and mode `001`.
 
 Those are precisely the two modes that "Memory Alterable" excludes.
 
-So `ADDX` fills exactly the hole `ADD`'s EA class leaves, and the two declarations tile line
-D without overlap and without a gap. Neither declaration mentions the other. **The generator
-proves it** (§6.1) — and if a future transcription error widens `ADD`'s EA class to `Data
-Alterable`, the build fails with the specific opcodes now claimed twice, rather than
-`ADDX` silently disappearing under `ADD` and multi-precision arithmetic breaking in a way
-that surfaces months later as one failing demo.
+Note what `ADDX` does with them: mode `000` reads as `Dy`, matching the usual meaning, but
+mode `001` is **reinterpreted as `-(Ay)`**, not as address-register-direct. The bits are
+shared; the meaning is not. A decoder that treats the EA field uniformly across line D gets
+`ADDX -(Ay),-(Ax)` wrong, which is why the declaration owns those encodings outright rather
+than deferring to a shared EA decoder.
+
+So `ADDX` fills exactly the hole `ADD`'s EA class leaves, with no overlap. Neither
+declaration mentions the other. **The generator proves it** (§6.1) — and if a future
+transcription error widens `ADD`'s EA class to `Data Alterable`, the build fails naming the
+specific opcodes now claimed twice, rather than `ADDX` silently disappearing under `ADD` and
+multi-precision arithmetic breaking in a way that surfaces months later as one failing demo.
+
+**They do not, however, tile line D completely, and an earlier draft of this spike claimed
+they did.** Line D holds 4 096 encodings; the three declarations claim 3 768 of them and
+leave **328 unclaimed**, which must decode to illegal instruction:
+
+| Where | Unclaimed per data register | Total |
+|---|---|---|
+| `ADD.B <ea>,Dn` — `An` plus the three unassigned mode-7 registers | 11 | 88 |
+| `ADD.W/.L <ea>,Dn` and both `ADDA` forms — unassigned mode-7 registers | 3 each | 96 |
+| `ADD Dn,<ea>` — `d16(PC)`, `d8(PC,Xn)`, `#imm`, and three unassigned mode-7 registers | 6 each | 144 |
+
+That gap is correct behaviour, not a defect: writing to a PC-relative or immediate
+destination is not an instruction, and mode 7 registers 5–7 are unassigned on the 68000.
+The point is that the design must *account* for it rather than assume the space is full —
+so `3 768 claimed / 328 illegal` becomes a fixed assertion in the test plan (§10 test 3).
+Getting a coverage total wrong is precisely the failure this generator exists to catch, and
+the spike should not be exempt from it.
 
 The same structure repeats on line C (`AND`/`ABCD`/`EXG`/`MULU`), line 9 (`SUB`/`SUBX`),
 line 8 (`OR`/`SBCD`/`DIVU`) and line B (`CMP`/`CMPM`/`EOR`). Line C is the messiest and is
@@ -252,13 +317,37 @@ Flag effects for the three, showing the vocabulary earning its keep:
 | Artifact | Purpose |
 |---|---|
 | `opcode_table.inc` | 65 536-entry dispatch table |
-| `handlers_*.inc` | Generated handler bodies, grouped for compile parallelism |
+| `instantiations_*.inc` | Explicit template instantiations, grouped for compile parallelism |
 | `coverage.txt` | Every opcode with its claimant, or its fall-through class |
 | `conflicts.txt` | Empty, or the build has already failed |
+
+**The generator emits instantiations, not synthesised handler bodies.** This is a change
+from the first draft, which had it printing C++ for every one of the tens of thousands of
+opcode forms. Instead, semantics are written by hand **once per operation** — roughly eighty
+function templates parameterised on size, addressing mode and flag effects — and the
+generator emits the explicit instantiation list plus the dispatch table that points into it.
+
+The difference is worth the revision:
+
+- **The semantics stay readable and debuggable.** Stepping into `add<Long, EaMode::Indirect>`
+  lands in real, reviewable source. Stepping into a generated body lands in machine-printed
+  code, which is exactly the wrong place to be when chasing a flag bug.
+- **Specialisation is preserved.** The compiler still generates per-size, per-mode
+  specialised code with the effective-address decoding folded in at compile time, which is
+  the performance reason for doing any of this. Nothing is decoded at run time that was
+  going to be constant.
+- **Generated output shrinks by orders of magnitude** — an instantiation line per form
+  instead of a function body — so regeneration and compilation stay fast and the diff
+  between two generator versions is legible.
 
 Generated sources are **not committed** (ADR-CPU-02). The table is the source of truth; the
 generator has its own tests; CI verifies that regenerating produces byte-identical output,
 so a stale checked-in artefact cannot drift.
+
+Instantiation count remains the compile-time risk, and grouping across translation units
+(§6.3) is the lever. If it proves insufficient, the fallback is generating bodies for the
+hottest forms only — an optimisation, and therefore subject to ADR-PERF-06 D2's requirement
+of a measurement before it lands.
 
 ### 6.2 The two proofs
 
@@ -318,6 +407,10 @@ reviewable work. Nothing may be implemented against guessed values.
       that the bus protocol needs.
 - [ ] Exception vector assignments and per-model stack frame formats.
 - [ ] The 68060 `TrapsToSoftware` set.
+- [ ] **The measured value of every `Undefined` flag, per model** (§4.3.1) — `N`/`V` after
+      `ABCD`/`SBCD`/`NBCD`, `N`/`Z` after an overflowing `DIVU`/`DIVS`, the `CHK` flags, and
+      the rest. Determinism (ADR-CORE-01 D6) makes this mandatory rather than cosmetic:
+      the emulator must produce one repeatable value, and it should be the hardware's.
 - [ ] Divergences between the manuals and hardware, recorded with the measurement that found
       them.
 
@@ -351,10 +444,16 @@ Acceptance criteria for the generator story that follows this spike.
 |---|---|
 | 1 | The generator claims each of the 65 536 opcodes at most once |
 | 2 | Every opcode is claimed or classified (illegal / line-A / line-F) |
-| 3 | Line D expands to `ADD`, `ADDA` and `ADDX` with no overlap and no gap |
+| 3 | Line D expands to exactly 3 768 claimed and 328 illegal encodings, with no overlap (§5) |
 | 4 | Widening an EA class to create an overlap fails the build, naming both claimants |
 | 5 | Removing a declaration to create a gap fails the build, naming the opcodes |
 | 6 | Each `FlagEffect` is exercised by at least one instruction, and `ClearedIfNonZero` preserves Z across a multi-word `ADDX` chain |
+| 6a | `FromExtend`: `ROXL`/`ROXR` with a zero shift count sets C from X and leaves X alone |
+| 6b | `FromShiftOut`: a zero shift count clears C and leaves X unaffected on `ASL`/`ASR`/`LSL`/`LSR` |
+| 6c | `FromShiftSignChange`: `ASL` sets V when the sign bit changes mid-shift, not only when it differs at the end |
+| 6d | `FromTestedBit`: `BTST` sets Z from the complement of the tested bit, independent of the operand's other bits |
+| 6e | `Replaced`: `MOVE to CCR`, `RTR` and `ANDI to SR` load the whole condition-code register |
+| 6f | Every `Undefined` flag produces the recorded value, identically on both architectures and in every build configuration |
 | 7 | Per-model availability is honoured: `MOVE from SR` is unprivileged on 68000, privileged on 68010+ |
 | 8 | A 68060 `TrapsToSoftware` instruction raises the exception rather than executing or faulting as illegal |
 | 9 | Regeneration is byte-identical; a different handler grouping does not change the differential trace |
@@ -369,6 +468,24 @@ Accepted when §4's schema is reviewed and the §5 expansion is checked against 
 *M68000PRM* by a second reader. §8's transcription is **not** a condition of acceptance — it
 is the work this spike unblocks. Tests 1–11 become the acceptance criteria of the generator
 story.
+
+### 11.1 Review pass — 2026-07-27
+
+An adversarial pass over the first draft, resolving the three questions it raised. All three
+are settled and the revisions are folded in above.
+
+| Question | Outcome |
+|---|---|
+| Does the §5 line-D expansion hold against the *M68000PRM*? | **Partly — one error found and corrected.** The encoding analysis is right: `ADDX` occupies EA modes `000`/`001` in the `Dn`→`<ea>` direction, exactly the two "Memory Alterable" excludes, so there is no overlap. But the draft's claim of "no gap" was wrong. 328 of line D's 4 096 encodings are unclaimed and correctly decode to illegal instruction. Corrected, quantified, and promoted to test 3. Also corrected: `ADDX` *reinterprets* mode `001` as `-(Ay)`, not address-register-direct — a decoder sharing one EA path across line D gets it wrong. |
+| Is the `FlagEffect` vocabulary closed at seven? | **No — six more were needed.** `Undefined`, `FromShiftOut`, `FromExtend`, `FromShiftSignChange`, `FromTestedBit`, `Replaced`. Thirteen now, and closed at thirteen under the same review discipline as adding an instruction form. `Undefined` carries a determinism obligation (§4.3.1) that the draft missed entirely. That six were missing is the argument *for* a named vocabulary: a bitmask would have recorded "affected" for every one of them. |
+| Confirm constexpr C++ table over a text DSL? | **Confirmed**, with two amendments. The rejection of pure `constexpr`/template expansion is restated on better grounds — the proofs become `static_assert`s that cannot name the conflicting declarations. Cross-compilation is recorded as the real cost: the generator is a host tool and any cross build needs a host-toolchain path (§3), which belongs in the build story. And §6.1 now emits **template instantiations rather than synthesised handler bodies**, keeping semantics in ~80 readable templates while preserving compile-time specialisation. |
+
+**Standing caveat: this pass was made by the spike's author.** It found real errors, but
+self-review is not the independent check §11 asks for. The second-reader condition remains
+open, and the PO may either accept on the strength of this pass or hold it for an
+independent reading. The transcription work (§8) will exercise §4's schema against the
+manual line by line, which is itself a strong second check — but it happens *after*
+acceptance, so accepting now trades a little risk for unblocking the CPU epic.
 
 ## 12. Open decisions
 
