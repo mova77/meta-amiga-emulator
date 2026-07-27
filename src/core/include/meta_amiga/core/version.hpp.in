@@ -1,0 +1,27 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
+// Copyright (C) 2026 The meta-amiga authors
+//
+// Generated from version.hpp.in by CMake — do not edit the generated copy.
+
+#ifndef META_AMIGA_CORE_VERSION_HPP
+#define META_AMIGA_CORE_VERSION_HPP
+
+namespace meta::amiga::core {
+
+/// Version scheme is `<yy>.<rel>.<fix>`: two-digit release year, release ordinal within
+/// that year, fix ordinal. See README.md.
+inline constexpr int kVersionYear = @PROJECT_VERSION_MAJOR@;
+inline constexpr int kVersionRelease = @PROJECT_VERSION_MINOR@;
+inline constexpr int kVersionFix = @PROJECT_VERSION_PATCH@;
+
+inline constexpr const char* kVersionString = "@PROJECT_VERSION@";
+
+/// The version the *library* was compiled with, as opposed to the version the calling
+/// translation unit was compiled against. They differ when a stale build directory or a
+/// mismatched install is in play, and a diagnostic bundle that cannot tell those apart
+/// wastes everyone's time.
+[[nodiscard]] const char* linkedVersionString() noexcept;
+
+}  // namespace meta::amiga::core
+
+#endif  // META_AMIGA_CORE_VERSION_HPP
