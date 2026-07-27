@@ -1,0 +1,170 @@
+# SPDX-License-Identifier: GPL-3.0-or-later
+# Copyright (C) 2026 The meta-amiga authors
+#
+# The compatibility claim in README.md is per-platform, so the suite has to be green on
+# every supported platform or the claim means nothing. Determinism (ADR-CORE-01 D6) is a
+# claim about architectures too, which is why AArch64 legs are here from the start rather
+# than added once something breaks on them.
+
+name: CI
+
+# Every branch, not just main. A gate that only reports after a merge is a gate that
+# tells you what you already broke. `pull_request` is deliberately absent: for same-repo
+# branches it would double every run, and it must be added back the moment external
+# contributions start, since fork PRs do not fire `push` here.
+on:
+  push:
+  workflow_dispatch:
+
+# A superseded run proves nothing about the current tree.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  # ADR-ROM-03 D1 is unconditional, and a policy nobody checks is a policy that decays.
+  # This runs first and cheaply so a breach cannot reach a green build.
+  no-copyrighted-media:
+    name: No ROMs or media
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Fail on any ROM or disk image in the tree
+        run: |
+          set -euo pipefail
+          matches=$(git ls-files | grep -iE '\.(rom|key|adf|adz|dms|hdf|ipf|scp|iso|cue|chd)$' || true)
+          if [ -n "$matches" ]; then
+            echo "::error::Copyrighted media or a ROM reached the repository:"
+            echo "$matches"
+            exit 1
+          fi
+          echo "Clean — no ROM or media files tracked."
+
+      - name: Fail on a suspiciously large tracked file
+        run: |
+          set -euo pipefail
+          # A renamed ROM would slip past an extension check. Nothing this project
+          # legitimately tracks is over a megabyte yet; revisit when that stops being true.
+          big=$(git ls-files | xargs -r -I{} find {} -type f -size +1M 2>/dev/null || true)
+          if [ -n "$big" ]; then
+            echo "::error::Tracked file over 1 MB — check it is not a disguised ROM or image:"
+            echo "$big"
+            exit 1
+          fi
+          echo "Clean — no tracked file over 1 MB."
+
+  build:
+    name: ${{ matrix.name }}
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: Linux x86-64 · GCC
+            os: ubuntu-latest
+            preset: dev
+            cc: gcc
+            cxx: g++
+          - name: Linux x86-64 · Clang
+            os: ubuntu-latest
+            preset: dev
+            cc: clang
+            cxx: clang++
+          - name: Linux AArch64 · GCC
+            os: ubuntu-24.04-arm
+            preset: dev
+            cc: gcc
+            cxx: g++
+          - name: macOS AArch64 · AppleClang
+            os: macos-latest
+            preset: dev
+          - name: macOS AArch64 · Homebrew Clang
+            os: macos-latest
+            preset: dev
+            brew_llvm: true
+          # The `windows` preset names no generator on purpose. Pinning
+          # "Visual Studio 17 2022" failed the first CI run outright, because the runner
+          # image had moved to a newer Visual Studio — the pin bound the build to a
+          # runner rather than to a requirement. Letting CMake choose picks whatever
+          # Visual Studio is installed, on CI and on a developer machine alike.
+          - name: Windows x86-64 · MSVC
+            os: windows-latest
+            preset: windows
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Ninja (Linux)
+        if: runner.os == 'Linux'
+        run: sudo apt-get update && sudo apt-get install -y ninja-build
+
+      - name: Install Ninja (macOS)
+        if: runner.os == 'macOS'
+        run: brew install ninja
+
+      - name: Install Homebrew LLVM
+        if: matrix.brew_llvm
+        run: |
+          brew install llvm
+          echo "CC=$(brew --prefix llvm)/bin/clang" >> "$GITHUB_ENV"
+          echo "CXX=$(brew --prefix llvm)/bin/clang++" >> "$GITHUB_ENV"
+
+      - name: Select compiler
+        if: matrix.cc != ''
+        shell: bash
+        run: |
+          echo "CC=${{ matrix.cc }}" >> "$GITHUB_ENV"
+          echo "CXX=${{ matrix.cxx }}" >> "$GITHUB_ENV"
+
+      # Warnings are errors by default for a top-level build, so nothing is passed here —
+      # if a leg is green, it was green under -Werror.
+      - name: Configure
+        run: cmake --preset ${{ matrix.preset }}
+
+      - name: Build
+        run: cmake --build --preset ${{ matrix.preset }}
+
+      - name: Test
+        run: ctest --preset ${{ matrix.preset }}
+
+      - name: Publish the compile-commands database
+        # One leg is enough; it is an input to static analysis, not per-platform evidence.
+        if: matrix.name == 'Linux x86-64 · Clang'
+        uses: actions/upload-artifact@v4
+        with:
+          name: compile-commands
+          path: build/dev/compile_commands.json
+          if-no-files-found: error
+
+  sanitizers:
+    name: ${{ matrix.sanitizer }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      matrix:
+        sanitizer: [asan, tsan]
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Ninja
+        run: sudo apt-get update && sudo apt-get install -y ninja-build
+
+      - name: Configure
+        env:
+          CC: clang
+          CXX: clang++
+        run: cmake --preset ${{ matrix.sanitizer }}
+
+      - name: Build
+        run: cmake --build --preset ${{ matrix.sanitizer }}
+
+      - name: Test
+        run: ctest --preset ${{ matrix.sanitizer }}

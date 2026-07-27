@@ -46,6 +46,12 @@
       "displayName": "Release",
       "inherits": "base",
       "cacheVariables": { "CMAKE_BUILD_TYPE": "Release" }
+    },
+    {
+      "name": "windows",
+      "displayName": "Windows (MSVC, default Visual Studio generator)",
+      "binaryDir": "${sourceDir}/build/${presetName}",
+      "cacheVariables": { "CMAKE_EXPORT_COMPILE_COMMANDS": "ON" }
     }
   ],
   "buildPresets": [
@@ -53,7 +59,8 @@
     { "name": "debug", "configurePreset": "debug" },
     { "name": "asan", "configurePreset": "asan" },
     { "name": "tsan", "configurePreset": "tsan" },
-    { "name": "release", "configurePreset": "release" }
+    { "name": "release", "configurePreset": "release" },
+    { "name": "windows", "configurePreset": "windows", "configuration": "RelWithDebInfo" }
   ],
   "testPresets": [
     {
@@ -66,6 +73,12 @@
     { "name": "debug", "inherits": "base", "configurePreset": "debug" },
     { "name": "asan", "inherits": "base", "configurePreset": "asan" },
     { "name": "tsan", "inherits": "base", "configurePreset": "tsan" },
-    { "name": "release", "inherits": "base", "configurePreset": "release" }
+    { "name": "release", "inherits": "base", "configurePreset": "release" },
+    {
+      "name": "windows",
+      "inherits": "base",
+      "configurePreset": "windows",
+      "configuration": "RelWithDebInfo"
+    }
   ]
 }
