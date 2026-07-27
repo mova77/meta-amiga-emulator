@@ -1,5 +1,14 @@
 # meta-amiga
 
+[![CI](https://github.com/mova77/meta-amiga-emulator/actions/workflows/ci.yml/badge.svg)](https://github.com/mova77/meta-amiga-emulator/actions/workflows/ci.yml)
+[![Licence: GPL-3.0-or-later](https://img.shields.io/badge/licence-GPL--3.0--or--later-blue.svg)](LICENSE)
+[![C++23](https://img.shields.io/badge/C%2B%2B-23-00599C.svg)](CMakeLists.txt)
+[![Clean room](https://img.shields.io/badge/provenance-clean--room-brightgreen.svg)](PROVENANCE.md)
+
+[![macOS](https://img.shields.io/badge/macOS-AArch64-black.svg)](#build)
+[![Linux](https://img.shields.io/badge/Linux-x86--64%20%7C%20AArch64-FCC624.svg)](#build)
+[![Windows](https://img.shields.io/badge/Windows-x86--64-0078D6.svg)](#build)
+
 A portable, cycle-accurate Commodore Amiga emulator for macOS, Linux and Windows.
 
 Written from scratch in C++23 under the GNU General Public License v3 (or later). The
@@ -7,9 +16,18 @@ goal is a single codebase that runs **games, Workbench and demoscene productions
 equal fidelity — the three workloads that stress completely different parts of the
 machine, and the reason most emulators are good at one and merely adequate at the others.
 
-> **Status: pre-alpha.** The specification and architecture are being written before the
-> implementation. Nothing here boots yet. See [docs/specification.md](docs/specification.md)
-> for what is being built and [docs/adr/](docs/adr/) for why it is being built that way.
+> **Status: pre-alpha — there is no emulator yet.** The specification and architecture are
+> written before the implementation, deliberately. What exists today is the design, the
+> build and the CI that will hold it to account: nine legs across three platforms and two
+> architectures, under warnings-as-errors, ASan/UBSan and TSan.
+>
+> Start with [docs/specification.md](docs/specification.md) for what is being built,
+> [docs/adr/](docs/adr/) for why it is built that way, and [docs/spikes/](docs/spikes/) for
+> how the hard parts work.
+
+The platform badges above state what CI actually builds and tests on every push, not an
+aspiration. The single CI badge is the live one — GitHub publishes workflow status, not
+per-job status, so the platform badges are declarative and the CI badge is the truth.
 
 ## What "compatible" means here
 
