@@ -55,8 +55,18 @@ derived from published documentation, hardware measurement and original testing.
 
 ## Build
 
-There is nothing to build yet. The build system lands with the foundation work, and will
-require CMake ≥ 3.28, Ninja, and a C++23 compiler (Clang ≥ 17, GCC ≥ 13, MSVC ≥ 19.38).
+Requires CMake ≥ 3.28, Ninja, and a C++23 compiler — Clang ≥ 17, AppleClang ≥ 15,
+GCC ≥ 13, or MSVC ≥ 19.38. The build refuses to configure below those floors rather than
+failing later with template errors.
+
+```bash
+cmake --preset dev && cmake --build --preset dev && ctest --preset dev
+```
+
+Presets: `dev`, `debug`, `asan` (Address + UndefinedBehavior), `tsan`, `release`.
+
+This builds the core library and its tests. **It does not build an emulator** — there is
+nothing to run yet. See [the roadmap](docs/specification.md) for what arrives when.
 
 ## Versioning
 
