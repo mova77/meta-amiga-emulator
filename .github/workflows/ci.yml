@@ -88,6 +88,11 @@ jobs:
             os: macos-latest
             preset: dev
             brew_llvm: true
+          # The `windows` preset names no generator on purpose. Pinning
+          # "Visual Studio 17 2022" failed the first CI run outright, because the runner
+          # image had moved to a newer Visual Studio — the pin bound the build to a
+          # runner rather than to a requirement. Letting CMake choose picks whatever
+          # Visual Studio is installed, on CI and on a developer machine alike.
           - name: Windows x86-64 · MSVC
             os: windows-latest
             preset: windows

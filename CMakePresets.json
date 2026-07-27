@@ -49,10 +49,9 @@
     },
     {
       "name": "windows",
-      "displayName": "Windows (MSVC, multi-config)",
-      "inherits": "base",
-      "generator": "Visual Studio 17 2022",
-      "architecture": { "value": "x64", "strategy": "set" }
+      "displayName": "Windows (MSVC, default Visual Studio generator)",
+      "binaryDir": "${sourceDir}/build/${presetName}",
+      "cacheVariables": { "CMAKE_EXPORT_COMPILE_COMMANDS": "ON" }
     }
   ],
   "buildPresets": [
