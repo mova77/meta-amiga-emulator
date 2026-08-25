@@ -10,6 +10,8 @@ function(meta_amiga_add_test name)
     add_test(NAME ${name} COMMAND ${name})
 endfunction()
 
+meta_amiga_add_test(scheduler_test)
+meta_amiga_add_test(timing_test)
 meta_amiga_add_test(version_test)
 meta_amiga_add_test(slot_allocator_test)
 meta_amiga_add_test(slot_allocator_unsourced_test)

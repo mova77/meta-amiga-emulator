@@ -104,7 +104,16 @@ unconditionally. Deliberately not defended against in the scheduler: a cycle bud
 bug that a test catches. Handlers that can chain get a test that proves they terminate.
 
 Scheduling in the **past** is different — it is always a bug. Assert in debug; in release,
-clamp to `now` so the failure surfaces as a visible timing artefact rather than a hang.
+clamp to **`now + 1`** so the failure surfaces as a visible timing artefact rather than a
+hang.
+
+> **Corrected during implementation review (2026-08-25).** This section originally said to
+> clamp to `now`. That is wrong, and produces precisely the hang it claims to avoid: an
+> event at the current cycle is re-dispatched before time advances, so a handler that
+> reschedules into the past loops forever inside `run_until`. Clamping strictly into the
+> future keeps the bug loud — the device fires every cycle — while guaranteeing the loop
+> still terminates. A release-only regression test covers it, and was verified to hang
+> against the original clamp.
 
 ---
 

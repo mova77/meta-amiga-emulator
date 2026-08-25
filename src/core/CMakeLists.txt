@@ -19,6 +19,7 @@ configure_file(
     @ONLY)
 
 add_library(meta-amiga-core STATIC
+    scheduler.cpp
     version.cpp
     chipset/slot_allocator.cpp)
 
