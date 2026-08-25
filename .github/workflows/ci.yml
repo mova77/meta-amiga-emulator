@@ -58,6 +58,27 @@ jobs:
           fi
           echo "Clean — no tracked file over 1 MB."
 
+  # The public-repo boundary used to depend on someone remembering to run a scan by
+  # hand. It caught a real leak that way once, which is the argument for making it
+  # mechanical rather than the argument for trusting it.
+  no-instance-data:
+    name: No private identifiers
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          # The commit-message scan needs history, not just the tip.
+          fetch-depth: 0
+
+      - name: Scan tracked files and commit messages
+        env:
+          # Unset is a valid state: the static patterns still run and the job says
+          # plainly that tracker keys are going unchecked. See the script's header for
+          # why this cannot simply be written into the file.
+          PRIVATE_ID_PATTERN: ${{ vars.PRIVATE_ID_PATTERN }}
+        run: ./.github/scripts/check-public-boundary.sh
+
   build:
     name: ${{ matrix.name }}
     runs-on: ${{ matrix.os }}
