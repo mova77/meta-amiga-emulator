@@ -37,14 +37,18 @@
 # is worse than no gate: it reads as a pass. Without the flag it is reported and tolerated,
 # so a local run on a host with no symbol reader still gets the include half.
 #
-# Measured on the Windows leg rather than assumed: `windows-latest` has an `nm` on PATH
-# (Git for Windows ships binutils) and it reads an MSVC `.lib` archive correctly — a
-# planted malloc/free import was found in
-# build/windows/src/core/RelWithDebInfo/meta-amiga-core.lib and failed that leg. So the
-# dumpbin branch below is the fallback for a host without nm, not the Windows path, and
-# it is consequently the one part of this script CI does not exercise. It was validated
+# Measured on the Windows leg rather than assumed: `windows-latest` has an `nm` on PATH —
+# at C:\mingw64\bin\nm.EXE, from the image's MinGW, which is why the status line prints
+# the reader's full path rather than just "nm" — and it reads an MSVC `.lib` archive
+# correctly. Planted malloc/free and _CxxThrowException imports were both found in
+# build/windows/src/core/RelWithDebInfo/meta-amiga-core.lib and failed that leg.
+#
+# So the dumpbin branch below is the fallback for a host without nm, not the Windows path,
+# and it is consequently the one part of this script CI does not exercise. It was validated
 # by hand against a representative COFF symbol table; treat it as unproven until a host
-# without nm actually runs it.
+# without nm actually runs it. That host is not hypothetical: nm is on the Windows runner
+# by an accident of the image, not by anything this project controls, and --require-symbols
+# means the leg goes red rather than quiet if it disappears.
 #
 # Run it with no arguments from a configured and built tree:
 #
