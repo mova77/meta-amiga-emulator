@@ -3,8 +3,11 @@
 #
 # The emulation core. ADR-PORT-04 D1: freestanding — no I/O, no threads, no platform
 # headers, no dependency beyond the C++23 standard library. Nothing may be linked here
-# that would make that untrue. An architecture test will turn that from a convention into
-# a build-time check; until it exists, this comment is the only thing enforcing it.
+# that would make that untrue. That is a build-time check rather than a convention:
+# `.github/scripts/check_core_boundary.py` scans this directory's includes and the
+# imported symbols of the library below, and CI fails the build on a breach. Widening
+# what the core may depend on means editing the allowlist in that script, which makes it
+# a reviewable policy change rather than an include nobody notices.
 #
 # At this stage the library holds only the version accessor. It exists so the build
 # foundation is provably exercised end to end — configure_file, the include path, the
