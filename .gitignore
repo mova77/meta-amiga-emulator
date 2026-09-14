@@ -14,6 +14,11 @@ cmake-build-*/
 compile_commands.json
 .cache/
 
+# Byte-code left behind by the CI scripts under .github/scripts/ when they are run or
+# imported locally.
+__pycache__/
+*.pyc
+
 # Media and ROMs — never, under any circumstance (ADR-ROM-03 D1)
 *.adf
 *.adz

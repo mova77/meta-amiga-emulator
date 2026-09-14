@@ -133,6 +133,34 @@ jobs:
       - name: Test
         run: ctest --preset ${{ matrix.preset }}
 
+      # ADR-PORT-04 D1 says the freestanding core is enforced by an architecture test, not
+      # by convention. It runs on every leg rather than one: the include half is
+      # platform-independent, but the symbol half reads what each toolchain actually
+      # linked, and an escape can exist in one platform's standard library and not
+      # another's. It needs the built library, hence its position after the build.
+      # `python3` is not on PATH under the Windows runner's bash, where the interpreter is
+      # `python`; the nm-versus-dumpbin difference is inside the script, not here.
+      # Not on the sanitizer jobs: ASan rewrites the allocator and interposes on libc, so
+      # the imported symbols there describe the sanitizer's instrumentation rather than
+      # the core, and the symbol half would be reading the wrong thing.
+      - name: Check the freestanding-core boundary
+        shell: bash
+        env:
+          # The findings quote the ADR, which uses em dashes and typographic quotes. The
+          # Windows console codepage turns those into question marks, on the leg whose
+          # output is most likely to be read after a failure.
+          PYTHONIOENCODING: utf-8
+        run: |
+          set -euo pipefail
+          py=python3
+          command -v "$py" >/dev/null 2>&1 || py=python
+          # The self-test first. It asserts the denylist's verdict on known symbol
+          # spellings, so a policy gap — a spelling the list does not name — fails loudly
+          # here instead of passing silently through the scan below. It needs no build
+          # tree, so it costs nothing to repeat per leg.
+          "$py" .github/scripts/check_core_boundary_selftest.py
+          "$py" .github/scripts/check_core_boundary.py --require-symbols
+
       - name: Publish the compile-commands database
         # One leg is enough; it is an input to static analysis, not per-platform evidence.
         if: matrix.name == 'Linux x86-64 · Clang'
