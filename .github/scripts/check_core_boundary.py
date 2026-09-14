@@ -26,15 +26,23 @@
 # currently true statement that the core imports no allocator at all; the weaker runtime
 # form is left to the ASan legs in CI.
 #
-# Scope note — ADR-PORT-04 D5 ("core never references ports or frontend") is not checked
-# here because neither directory exists yet. Adding them is adding rows to ALLOWED_QUOTED
-# and a denied-prefix list, not redesigning this check.
+# Scope note — ADR-PORT-04 D5 ("core never references ports or frontend") is unchecked:
+# neither directory exists. Adding them is rows in ALLOWED_QUOTED_PREFIXES, not a redesign.
 #
-# Platform coverage — the symbol half uses `nm` on POSIX and `dumpbin /symbols` on MSVC.
+# Platform coverage — the symbol half prefers `nm` and falls back to `dumpbin /symbols`.
 # The difference is here, inside the script, not in the CI matrix. If neither tool can be
 # found, the symbol half reports itself SKIPPED with a reason and the include half still
 # runs and still fails the build on a breach. A check that is honest about its coverage
 # beats one that silently passes.
+#
+# Measured on the Windows leg rather than assumed: `windows-latest` has an `nm` on PATH
+# (Git for Windows ships binutils) and it reads an MSVC `.lib` archive correctly — a
+# planted malloc/free import was found in
+# build/windows/src/core/RelWithDebInfo/meta-amiga-core.lib and failed that leg. So the
+# dumpbin branch below is the fallback for a host without nm, not the Windows path, and
+# it is consequently the one part of this script CI does not exercise. It was validated
+# by hand against a representative COFF symbol table; treat it as unproven until a host
+# without nm actually runs it.
 #
 # Run it with no arguments from a configured and built tree:
 #
