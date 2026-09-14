@@ -50,6 +50,12 @@ CASES: tuple[tuple[str, str | None, str], ...] = (
     ("___cxa_throw", "dynamic allocation", ""),
     ("__cxa_free_exception", "dynamic allocation", ""),
     ("__cxa_rethrow", "dynamic allocation", ""),
+    # Second review round. The rethrow path allocates too, and "dependent_" sits between
+    # the two halves of the name, so the full spelling __cxa_allocate_exception did not
+    # match it. These rows are why the policy uses the __cxa_allocate_ prefix now.
+    ("__cxa_allocate_dependent_exception", "dynamic allocation", "rethrow path"),
+    ("___cxa_allocate_dependent_exception", "dynamic allocation", "Mach-O spelling"),
+    ("__cxa_free_dependent_exception", "dynamic allocation", ""),
     ("_CxxThrowException", "dynamic allocation", "MSVC, plain"),
     ("?_CxxThrowException@@YAXPEAXPEBU_s__ThrowInfo@@@Z", "dynamic allocation", "MSVC"),
     ("__cxa_throw_bad_array_new_length", "dynamic allocation", "allocation failure path"),
@@ -88,8 +94,14 @@ CASES: tuple[tuple[str, str | None, str], ...] = (
     # A denylist that fails honest code gets switched off, so the negative rows matter as
     # much as the positive ones.
     ("__security_cookie", None, "MSVC stack-guard cookie, benign"),
-    ("___cxa_begin_catch", None, "unwinding, not allocation — catching allocates nothing"),
-    ("___gxx_personality_v0", None, "EH personality routine; a noexcept boundary emits it"),
+    # These three are NECESSARY exclusions, not merely safe ones, and it was measured
+    # rather than argued. A real `throw` emits ___cxa_allocate_exception, ___cxa_throw and
+    # ___gxx_personality_v0 and NO ___cxa_begin_catch or terminate; a noexcept boundary
+    # with no throw at all emits terminate, begin_catch and personality and no throw
+    # symbols. So they are companions of catching and of noexcept, and they routinely
+    # appear where __cxa_throw is absent — denying them would fail honest code.
+    ("___cxa_begin_catch", None, "catching allocates nothing"),
+    ("___gxx_personality_v0", None, "EH personality; a noexcept boundary emits it"),
     ("__ZSt9terminatev", None, "std::terminate, a contract-violation path"),
     ("_ZN4meta5amiga4core19linkedVersionStringEv", None, "the core's own symbol"),
     ("memcpy", None, "not I/O, not allocation; freestanding-admissible"),
