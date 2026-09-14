@@ -6,8 +6,8 @@
 # that would make that untrue. That is a build-time check rather than a convention:
 # `.github/scripts/check_core_boundary.py` scans this directory's includes and the
 # imported symbols of the library below, and CI fails the build on a breach. Widening
-# what the core may depend on means editing the allowlist in that script, which makes it
-# a reviewable policy change rather than an include nobody notices.
+# what the core may depend on means editing `check_core_boundary_policy.py` beside it,
+# which makes it a reviewable policy change rather than an include nobody notices.
 #
 # At this stage the library holds only the version accessor. It exists so the build
 # foundation is provably exercised end to end — configure_file, the include path, the
