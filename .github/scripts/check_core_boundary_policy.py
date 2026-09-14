@@ -119,15 +119,37 @@ DENIED_SYMBOLS: tuple[tuple[str, str, frozenset[str], tuple[str, ...]], ...] = (
             # source scan to find, which is what makes it worth denying by symbol.
             # Fragments rather than exact names because Mach-O prefixes another
             # underscore (___cxa_throw) that normalise() leaves alone.
-            "__cxa_allocate_exception",
-            "__cxa_free_exception",
+            #
+            # Prefixes, not whole names: __cxa_allocate_dependent_exception — the rethrow
+            # path, which also allocates — puts "dependent_" between the two halves and
+            # slipped past the full spelling. Anything the ABI names __cxa_allocate_* or
+            # __cxa_free_* is exception storage by construction, so the prefix is both
+            # narrower to read and wider in coverage than enumerating the variants.
+            "__cxa_allocate_",  # _exception and _dependent_exception
+            "__cxa_free_",  # likewise
             "__cxa_throw",  # also catches __cxa_throw_bad_array_new_length
             "__cxa_rethrow",
-            "_CxxThrowException",  # MSVC, plain and decorated
+            # MSVC, plain and decorated. Honest caveat: MSVC does NOT heap-allocate the
+            # thrown object — it is constructed in the throwing frame and copied to the
+            # catch frame — so on that platform this entry does not literally breach the
+            # "no dynamic allocation" clause it sits under. It stays denied because a
+            # throwing core is outside D1 regardless, and because this is the only throw
+            # marker MSVC gives us. Recorded rather than glossed: a per-entry justification
+            # that is wrong on one platform is worse than one that states its own limit.
+            "_CxxThrowException",
             # NOT denied, deliberately: __cxa_begin_catch, __gxx_personality_v0 and
-            # std::terminate. Those are unwinding and contract-violation machinery, not
-            # allocation, and a `noexcept` boundary can emit a reference to them without
-            # the core ever throwing. Denying them would fail honest code.
+            # std::terminate. Measured, not assumed, on two probes: a real `throw` emits
+            # __cxa_allocate_exception, __cxa_throw and __gxx_personality_v0 and NO
+            # begin_catch or terminate, while a `noexcept` boundary around a fallible call
+            # emits terminate, begin_catch and personality with no throw symbol at all.
+            # They are companions of catching and of noexcept, not of throwing, and they
+            # routinely appear where __cxa_throw is absent — so denying them would fail
+            # honest code rather than add coverage.
+            #
+            # And they must be denied or not denied outright, never conditionally on
+            # __cxa_throw being present too: nm aggregates across every archive member, so
+            # a legitimate throw in one translation unit would silently un-flag a finding
+            # in another, with the verdict shifting as files enter and leave the library.
         ),
     ),
     (
