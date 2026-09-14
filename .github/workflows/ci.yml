@@ -145,6 +145,11 @@ jobs:
       # the core, and the symbol half would be reading the wrong thing.
       - name: Check the freestanding-core boundary
         shell: bash
+        env:
+          # The findings quote the ADR, which uses em dashes and typographic quotes. The
+          # Windows console codepage turns those into question marks, on the leg whose
+          # output is most likely to be read after a failure.
+          PYTHONIOENCODING: utf-8
         run: |
           set -euo pipefail
           py=python3
