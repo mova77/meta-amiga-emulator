@@ -13,9 +13,17 @@
 # most safety-relevant code in the repo.
 #
 # So the symbol half now derives its subject from where the include half derives its own:
-# the library targets DECLARED under src/core/**. Adding add_library(meta-amiga-cpu ...)
-# in src/core/cpu/CMakeLists.txt brings that library under the symbol scan with no edit to
-# this file and none to the policy beside it.
+# the library targets that COMPILE sources under src/core/**, wherever those targets are
+# declared. Adding add_library(meta-amiga-cpu ...) over core sources brings that library
+# under the symbol scan with no edit to this file and none to the policy beside it.
+#
+# Keying on the declaration SITE was the first shape of this, and review showed it was
+# narrow twice over: a declaration moved into an include()d .cmake vanished, and so did
+# one written in src/CMakeLists.txt over core/ sources. Both are ordinary refactoring,
+# and both narrowed the symbol half without a word — the defect this file exists to make
+# impossible, surviving inside the fix for it. Hence two changes: every .cmake file is
+# read, so include() never has to be evaluated; and core-ness is decided by which
+# sources a target compiles, not by where it was written.
 #
 # The selection rule changed with it, and that change is half the fix rather than a side
 # effect of it. max(key=mtime) survives for exactly the job it was written for — choosing
@@ -57,19 +65,62 @@ def artifact_names(target: str) -> tuple[str, ...]:
     return (f"lib{target}.a", f"{target}.lib", f"lib{target}.lib")
 
 
-def core_library_targets(core_dir: Path, repo_root: Path) -> tuple[list[str], list[str]]:
-    """Return (targets to scan, reasons a declared target cannot be scanned).
+# Directories that hold build output or tooling rather than declarations.
+SKIP_DIRS = frozenset({"build", "out", ".git", ".claude", "node_modules", ".cache"})
 
-    Reads every CMakeLists.txt under src/core/**. The second list is what makes deriving
-    the subject safe: anything declared there that this check cannot open is reported by
-    name, so the symbol half's coverage cannot quietly become narrower than the include
-    half's.
+# add_library's second argument, when it is a type rather than the first source.
+LIBRARY_TYPES = ("STATIC", "SHARED", "MODULE", "OBJECT", "INTERFACE", "ALIAS", "UNKNOWN")
+
+# Translation units. Headers are not compiled into an archive, so they are not evidence
+# that a target is missing.
+TU_SUFFIXES = (".cpp", ".cc", ".cxx")
+
+
+def cmake_files(repo_root: Path):
+    """Every CMake file in the tree — CMakeLists.txt and the .cmake files they include.
+
+    Reading the .cmake files too is what makes include() a non-event: the declaration is
+    in a file this scan opens either way, so it never has to evaluate an include() to find
+    one. Build trees are skipped; a configured build contains copies that would be counted
+    twice and CMake's own modules, which declare nothing of ours.
     """
+    for path in sorted(repo_root.rglob("*")):
+        if not path.is_file():
+            continue
+        if path.name != "CMakeLists.txt" and path.suffix != ".cmake":
+            continue
+        parts = path.relative_to(repo_root).parts[:-1]
+        if any(part in SKIP_DIRS or part.startswith("cmake-build-") for part in parts):
+            continue
+        yield path
+
+
+def core_library_targets(core_dir: Path, repo_root: Path) -> tuple[list[str], list[str]]:
+    """Return (targets to scan, reasons the set cannot be trusted).
+
+    A target is a core target when it COMPILES core sources, not when it happens to be
+    declared in a particular file. Keying on the declaration site was the first shape of
+    this function and it was too narrow twice over: an add_library moved into an
+    include()d .cmake vanished from the scan, and so did one declared in src/CMakeLists.txt
+    over core/ sources. Both are ordinary CMake refactoring, both left the symbol half
+    covering less than the include half, and neither said anything — the very shape this
+    check exists to make impossible.
+
+    The second list is the backstop, and it is what makes this honest rather than merely
+    wider. Parsing add_library() will always be an approximation of CMake, so instead of
+    claiming to find every declaration, this asserts something checkable about the result:
+    every translation unit under src/core/ must be claimed by some discovered target. A
+    declaration this scan failed to find leaves its sources unclaimed, and an unclaimed
+    core source is reported by name — whatever the reason it was missed, including reasons
+    nobody has thought of. Coverage cannot narrow without that check noticing.
+    """
+    core_dir = core_dir.resolve()
     scannable: list[str] = []
     unreadable: list[str] = []
-    for path in sorted(core_dir.rglob("CMakeLists.txt")):
-        # A commented-out add_library is not a declaration. Stripping '#' to end of line
-        # is enough for CMake as this project writes it.
+    claimed: set[Path] = set()
+    unresolved_targets: list[str] = []
+
+    for path in cmake_files(repo_root):
         text = "\n".join(
             line.split("#", 1)[0]
             for line in path.read_text(encoding="utf-8", errors="replace").splitlines()
@@ -78,12 +129,31 @@ def core_library_targets(core_dir: Path, repo_root: Path) -> tuple[list[str], li
             where = path.relative_to(repo_root).as_posix()
         except ValueError:
             where = str(path)
+
         for match in ADD_LIBRARY_RE.finditer(text):
             name, rest = match.group(1), match.group(2)
             args = rest.split()
-            kind = args[0] if args else ""
+            kind = args[0] if args and args[0] in LIBRARY_TYPES else ""
             if kind in NO_ARTIFACT_TYPES or "IMPORTED" in args:
                 continue
+
+            core_sources: set[Path] = set()
+            unresolved = False
+            for arg in args[1:] if kind else args:
+                arg = arg.strip('"\'')
+                if not arg or arg in ("EXCLUDE_FROM_ALL",):
+                    continue
+                if "$" in arg:
+                    unresolved = True
+                    continue
+                candidate = (path.parent / arg).resolve()
+                if candidate == core_dir or core_dir in candidate.parents:
+                    core_sources.add(candidate)
+
+            declared_in_core = path.parent.resolve() == core_dir or core_dir in path.parent.resolve().parents
+            if not core_sources and not declared_in_core:
+                continue  # some other module's library; not this gate's business
+
             if "${" in name or "@" in name:
                 unreadable.append(
                     f"{name} in {where} — the target's name is built from a CMake "
@@ -97,9 +167,34 @@ def core_library_targets(core_dir: Path, repo_root: Path) -> tuple[list[str], li
                     "than an archive, and neither reader here opens one"
                 )
                 continue
+
+            if unresolved:
+                unresolved_targets.append(f"{name} in {where}")
+            claimed.update(core_sources)
             scannable.append(name)
-    # CMake forbids declaring a target twice; dedupe anyway, so a malformed tree costs a
-    # repeated scan rather than a confusing count.
+
+    orphans = sorted(
+        path.relative_to(core_dir).as_posix()
+        for path in core_dir.rglob("*")
+        if path.is_file() and path.suffix in TU_SUFFIXES and path.resolve() not in claimed
+    )
+    if unresolved_targets and orphans:
+        # The source list could not be expanded, so an unclaimed file proves nothing.
+        # Say that, rather than reporting orphans that may well be accounted for.
+        unreadable.append(
+            "the source list of "
+            + ", ".join(unresolved_targets)
+            + " uses a CMake variable this scan cannot expand, so it cannot confirm that "
+            "every core source is compiled into a library it scans"
+        )
+    elif orphans:
+        unreadable.append(
+            "under src/core/ but compiled into no library this scan found: "
+            + ", ".join(orphans)
+            + " — the add_library() declaring them was not discovered, so the symbol half "
+            "would cover less of the core than the include half"
+        )
+
     return list(dict.fromkeys(scannable)), unreadable
 
 

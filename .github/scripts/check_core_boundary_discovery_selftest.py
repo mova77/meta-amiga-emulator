@@ -53,6 +53,13 @@ def declare(core: Path, subdir: str, body: str) -> None:
     (directory / "CMakeLists.txt").write_text(body, encoding="utf-8")
 
 
+def source(core: Path, relative: str) -> None:
+    """Write a translation unit under src/core/, as a contributor would."""
+    path = core / relative
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text("namespace meta::amiga::core {}\n", encoding="utf-8")
+
+
 def build(root: Path, preset: str, relative: str, target: str) -> Path:
     """Put an archive where a preset build of `target` would put one."""
     directory = root / "build" / preset / relative
@@ -245,6 +252,108 @@ add_library(${GENERATED_TARGET} STATIC generated.cpp)
         )
 
 
+def case_declaration_moved_into_an_included_cmake_file() -> None:
+    """Review finding. An add_library moved into an include()d .cmake file vanished.
+
+    Ordinary CMake refactoring, and before this the scan returned one target and no
+    complaint — the symbol half silently covering half the core it used to. This is the
+    reason discovery reads every .cmake file rather than only CMakeLists.txt: an include()
+    never has to be evaluated, because the declaration is in a file already being read.
+    """
+    with tempfile.TemporaryDirectory() as tmp:
+        root = Path(tmp)
+        core = root / "src" / "core"
+        declare(core, "", "add_library(meta-amiga-core STATIC version.cpp)\ninclude(cpu.cmake)\n")
+        (core / "cpu.cmake").write_text(
+            "add_library(meta-amiga-cpu STATIC cpu/decode.cpp)\n", encoding="utf-8"
+        )
+        source(core, "version.cpp")
+        source(core, "cpu/decode.cpp")
+
+        targets, unreadable = core_library_targets(core, root)
+        check(
+            sorted(targets) == ["meta-amiga-core", "meta-amiga-cpu"],
+            f"the library declared in the included file is found: got {targets}",
+        )
+        check(not unreadable, f"and nothing is left unaccounted for: {unreadable}")
+
+
+def case_declaration_outside_src_core_over_core_sources() -> None:
+    """Review finding. A core library declared in src/CMakeLists.txt vanished too.
+
+    What makes a library this gate's business is which sources it COMPILES, not where it
+    happens to be declared. Keying on the declaration site was the narrower rule, and this
+    is the case that showed it.
+    """
+    with tempfile.TemporaryDirectory() as tmp:
+        root = Path(tmp)
+        core = root / "src" / "core"
+        declare(core, "", "add_library(meta-amiga-core STATIC version.cpp)\n")
+        (root / "src" / "CMakeLists.txt").write_text(
+            "add_library(meta-amiga-cpu STATIC core/cpu/decode.cpp)\n", encoding="utf-8"
+        )
+        source(core, "version.cpp")
+        source(core, "cpu/decode.cpp")
+
+        targets, unreadable = core_library_targets(core, root)
+        check(
+            sorted(targets) == ["meta-amiga-core", "meta-amiga-cpu"],
+            f"a core library declared elsewhere is still a core library: got {targets}",
+        )
+        check(not unreadable, f"and nothing is left unaccounted for: {unreadable}")
+        check(
+            "test-helpers" not in targets,
+            "a library outside the core is still none of this gate's business",
+        )
+
+
+def case_an_unclaimed_core_source_is_reported() -> None:
+    """The backstop, and the only reason the two cases above can be called closed.
+
+    Parsing add_library() will always approximate CMake, so rather than claim every
+    declaration is found, discovery asserts something checkable about the result: every
+    translation unit under src/core/ is compiled into a library it scans. A declaration
+    missed for ANY reason — including one nobody has thought of — leaves its sources
+    unclaimed, and an unclaimed core source is reported by name.
+    """
+    with tempfile.TemporaryDirectory() as tmp:
+        root = Path(tmp)
+        core = root / "src" / "core"
+        declare(core, "", "add_library(meta-amiga-core STATIC version.cpp)\n")
+        source(core, "version.cpp")
+        source(core, "cpu/decode.cpp")  # compiled by nothing this scan can see
+
+        targets, unreadable = core_library_targets(core, root)
+        check(targets == ["meta-amiga-core"], f"the visible target is still found: {targets}")
+        check(len(unreadable) == 1, f"exactly one complaint: {unreadable}")
+        check(
+            any("cpu/decode.cpp" in reason for reason in unreadable),
+            f"and it names the unaccounted source: {unreadable}",
+        )
+
+
+def case_a_source_list_that_cannot_be_expanded_says_so() -> None:
+    """An unexpandable source list makes an unclaimed file prove nothing, so say that.
+
+    Reporting orphans here would be a red leg for files that are very probably compiled
+    after all. The honest report is that the scan cannot confirm coverage — which is a
+    NOT RUN either way, but one a reader can act on.
+    """
+    with tempfile.TemporaryDirectory() as tmp:
+        root = Path(tmp)
+        core = root / "src" / "core"
+        declare(core, "", "add_library(meta-amiga-core STATIC ${CORE_SOURCES})\n")
+        source(core, "version.cpp")
+        source(core, "cpu/decode.cpp")
+
+        _targets, unreadable = core_library_targets(core, root)
+        check(len(unreadable) == 1, f"one complaint, not one per file: {unreadable}")
+        check(
+            "cannot expand" in unreadable[0] and "decode.cpp" not in unreadable[0],
+            f"it blames the unexpandable list, not the files: {unreadable}",
+        )
+
+
 CASES = (
     case_new_library_is_covered_the_day_it_is_declared,
     case_declared_but_not_built_is_not_run,
@@ -252,6 +361,10 @@ CASES = (
     case_every_target_is_scanned_across_presets,
     case_declarations_that_produce_no_archive_are_skipped,
     case_declarations_this_check_cannot_open_are_named,
+    case_declaration_moved_into_an_included_cmake_file,
+    case_declaration_outside_src_core_over_core_sources,
+    case_an_unclaimed_core_source_is_reported,
+    case_a_source_list_that_cannot_be_expanded_says_so,
 )
 
 
