@@ -102,6 +102,7 @@ from check_core_boundary_discovery import (  # noqa: E402
 from check_core_boundary_policy import (  # noqa: E402
     ALLOWED_ANGLE_INCLUDES,
     ALLOWED_QUOTED_PREFIXES,
+    EXCLUDED_ANGLE_INCLUDES,
     INCLUDE_RE,
     SOURCE_SUFFIXES,
     classify,
@@ -139,6 +140,33 @@ def core_sources() -> list[Path]:
     return found
 
 
+def angle_include_rule(header: str) -> str:
+    """Why this header is not admitted — and, crucially, which kind of "not".
+
+    A contributor who trips this gate has two possible next moves and they are opposites:
+    rewrite the code, or widen the policy. Telling them apart is the whole reason the
+    policy keeps a refusal list beside its allowlist. Before that, every absence read the
+    same, so an honest std::optional<Event> in the scheduler and a std::vector in the core
+    produced the same message.
+    """
+    refused = EXCLUDED_ANGLE_INCLUDES.get(header)
+    if refused:
+        return (
+            f"ADR-PORT-04 D1 — <{header}> is kept out of the core on purpose: {refused} "
+            "This absence is policy rather than an omission, so what clears it is a "
+            "change to the code, not an entry in check_core_boundary_policy.py."
+        )
+    return (
+        "ADR-PORT-04 D1 — the core depends on nothing beyond the admissible subset of "
+        f"the C++23 standard library, and <{header}> has not been weighed against that "
+        "subset in either direction. This is an omission rather than a refusal. If the "
+        "header survives D1's subtraction, what clears it is a reviewed entry in "
+        "ALLOWED_ANGLE_INCLUDES citing the clause, and it wants saying out loud in the "
+        "pull request. If it does not survive, it belongs in EXCLUDED_ANGLE_INCLUDES with "
+        "the reason, so that the next contributor is told rather than left guessing."
+    )
+
+
 def check_includes() -> tuple[list[Finding], int]:
     findings: list[Finding] = []
     sources = core_sources()
@@ -156,11 +184,7 @@ def check_includes() -> tuple[list[Finding], int]:
                     findings.append(
                         Finding(
                             where,
-                            "ADR-PORT-04 D1 — the core depends on nothing beyond the "
-                            "admissible subset of the C++23 standard library. "
-                            f"<{header}> is not on the allowlist in "
-                            "check_core_boundary_policy.py; adding it there is a policy "
-                            "change and wants saying out loud in the pull request.",
+                            angle_include_rule(header),
                             f"include of <{header}> is outside the freestanding subset",
                             annotate=rel,
                         )
