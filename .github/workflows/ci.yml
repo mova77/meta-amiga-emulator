@@ -154,11 +154,15 @@ jobs:
           set -euo pipefail
           py=python3
           command -v "$py" >/dev/null 2>&1 || py=python
-          # The self-test first. It asserts the denylist's verdict on known symbol
-          # spellings, so a policy gap — a spelling the list does not name — fails loudly
-          # here instead of passing silently through the scan below. It needs no build
-          # tree, so it costs nothing to repeat per leg.
+          # The self-tests first. The policy one asserts the denylist's verdict on known
+          # symbol spellings, so a policy gap — a spelling the list does not name — fails
+          # loudly here instead of passing silently through the scan below. The discovery
+          # one asserts that the symbol half still finds every library declared under
+          # src/core/, which is the other way the scan below can pass while covering less
+          # than it did: it has no symptom of its own, so it needs its own test. Neither
+          # needs a build tree, so both cost nothing to repeat per leg.
           "$py" .github/scripts/check_core_boundary_selftest.py
+          "$py" .github/scripts/check_core_boundary_discovery_selftest.py
           "$py" .github/scripts/check_core_boundary.py --require-symbols
 
       - name: Publish the compile-commands database
