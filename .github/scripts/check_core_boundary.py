@@ -16,10 +16,13 @@
 #             platform header, a third-party header, and a standard header whose mere
 #             presence contradicts D1 (<cstdio>, <thread>, <memory>).
 #
-#   Symbols   The undefined (imported) symbols of the built meta-amiga-core static
-#             library, against a denylist. Catches an escape that reaches libc through a
-#             header that is itself admissible, and an escape introduced by a header this
-#             scan cannot see because it was pulled in transitively.
+#   Symbols   The undefined (imported) symbols of every static library built from
+#             src/core/**, against a denylist. Catches an escape that reaches libc through
+#             a header that is itself admissible, and an escape introduced by a header
+#             this scan cannot see because it was pulled in transitively. Which libraries
+#             those are is discovered from the add_library() calls under src/core/, so
+#             both halves cover the same directory and a new core library comes under the
+#             symbol scan the day it is declared — see "Library discovery" below.
 #
 # Scope note — this does NOT prove "no dynamic allocation *after* initialisation". That is
 # a runtime property, not a link-time one. The symbol denylist asserts the stronger and
@@ -57,14 +60,23 @@
 #
 # CI adds --require-symbols, which turns any NOT RUN into a failure.
 #
-# Three files, because they fail for different reasons and are reviewed by different
+# Five files, because they fail for different reasons and are reviewed by different
 # people:
-#   check_core_boundary.py          reads the tree and the archive — this file
+#   check_core_boundary.py          reads the tree and the archive, and reports — this file
 #   check_core_boundary_policy.py   what is allowed and what is not, with the clause
 #                                   behind each entry; widening it is a diff to that file
+#   check_core_boundary_discovery.py
+#                                   which libraries the symbol half must read, derived
+#                                   from the add_library() calls under src/core/ so that
+#                                   both halves cover the same directory
 #   check_core_boundary_selftest.py asserts the policy's verdict on known symbol
 #                                   spellings, so a gap fails a test rather than passing
 #                                   a scan. CI runs it before the scan below.
+#   check_core_boundary_discovery_selftest.py
+#                                   exercises discovery on synthetic trees. A policy gap
+#                                   and a coverage gap fail for different reasons, and a
+#                                   reader that quietly stops covering a library is the
+#                                   second kind. CI runs it too.
 
 from __future__ import annotations
 
@@ -83,6 +95,10 @@ CORE_DIR = REPO_ROOT / "src" / "core"
 # clause behind each — lives next door so that widening it is a diff to one reviewable
 # file. This module reads the tree and the archive; it decides nothing.
 sys.path.insert(0, str(Path(__file__).resolve().parent))
+from check_core_boundary_discovery import (  # noqa: E402
+    core_library_targets,
+    find_libraries,
+)
 from check_core_boundary_policy import (  # noqa: E402
     ALLOWED_ANGLE_INCLUDES,
     ALLOWED_QUOTED_PREFIXES,
@@ -90,8 +106,6 @@ from check_core_boundary_policy import (  # noqa: E402
     SOURCE_SUFFIXES,
     classify,
 )
-
-LIBRARY_NAMES = ("libmeta-amiga-core.a", "meta-amiga-core.lib", "libmeta-amiga-core.lib")
 
 
 class Finding:
@@ -169,21 +183,6 @@ def check_includes() -> tuple[list[Finding], int]:
 # --------------------------------------------------------------------------------------
 # Symbol half
 # --------------------------------------------------------------------------------------
-
-
-def find_library(build_dir: Path | None) -> Path | None:
-    roots = [build_dir] if build_dir else [REPO_ROOT / "build"]
-    candidates: list[Path] = []
-    for root in roots:
-        if root is None or not root.is_dir():
-            continue
-        for name in LIBRARY_NAMES:
-            candidates.extend(root.rglob(name))
-    if not candidates:
-        return None
-    # Newest wins: with several presets configured, the one just built is the one the
-    # caller means.
-    return max(candidates, key=lambda p: p.stat().st_mtime)
 
 
 def find_dumpbin() -> str | None:
@@ -274,75 +273,111 @@ def symbols_dumpbin(dumpbin: str, library: Path) -> tuple[list[str], int]:
     return symbols, total
 
 
-
-
 def check_symbols(build_dir: Path | None) -> tuple[list[Finding], str, bool]:
     """Return (findings, status line, ran).
 
-    `ran` is False whenever the symbol half did not actually inspect the library — no
-    library, no reader, a reader that errored, or a reader that returned an empty symbol
-    table. --require-symbols turns any of those into a failure, because in CI every one of
-    them is a hole in the gate rather than a platform limitation.
+    `ran` is False whenever the symbol half did not actually inspect every core library —
+    no library target declared, a target declared in a shape no reader opens, a target
+    declared but not built, no reader, a reader that errored, or a reader that returned an
+    empty symbol table. --require-symbols turns any of those into a failure, because in CI
+    every one of them is a hole in the gate rather than a platform limitation.
+
+    "every core library" rather than "the library": partial coverage reported as a pass is
+    the same defect as no coverage reported as a pass, so one unreadable target stops the
+    half instead of quietly shrinking it.
     """
-    library = find_library(build_dir)
-    if library is None:
+    search_root = build_dir if build_dir else REPO_ROOT / "build"
+
+    targets, unreadable = core_library_targets(CORE_DIR, REPO_ROOT)
+    if unreadable:
         return [], (
-            "NOT RUN — no built meta-amiga-core library found under "
-            f"{(build_dir or REPO_ROOT / 'build')}. Build first: "
+            "NOT RUN — a library target declared under src/core/ cannot be inspected by "
+            "this check, so the symbol half would cover less of the core than the include "
+            "half without saying so: " + "; ".join(unreadable)
+        ), False
+    if not targets:
+        return [], (
+            "NOT RUN — no library target is declared under src/core/. The symbol half "
+            "derives its subject from add_library() there, so finding none means either "
+            "the core declares no library or this scan can no longer read the "
+            "declaration. Neither means there is nothing to check."
+        ), False
+
+    libraries, missing = find_libraries(targets, REPO_ROOT, build_dir)
+    if missing:
+        return [], (
+            "NOT RUN — declared under src/core/ but not built under "
+            f"{search_root}: {', '.join(missing)}. Build first: "
             "cmake --preset dev && cmake --build --preset dev"
         ), False
 
     nm = shutil.which("nm") or shutil.which("llvm-nm")
-    reader = None
     if nm:
-        reader = (f"nm ({nm})", lambda: symbols_nm(nm, library))
+        tool_name = f"nm ({nm})"
+
+        def read(library: Path) -> tuple[list[str], int]:
+            return symbols_nm(nm, library)
+
     else:
         dumpbin = find_dumpbin()
-        if dumpbin:
-            reader = (f"dumpbin /symbols ({dumpbin})", lambda: symbols_dumpbin(dumpbin, library))
+        if dumpbin is None:
+            return [], (
+                "NOT RUN — neither nm nor dumpbin was found on this host, so the imported "
+                "symbols of the core could not be read. The include half above still ran."
+            ), False
+        tool_name = f"dumpbin /symbols ({dumpbin})"
 
-    if reader is None:
-        return [], (
-            "NOT RUN — neither nm nor dumpbin was found on this host, so the imported "
-            "symbols of the core could not be read. The include half above still ran."
-        ), False
-
-    tool_name, read = reader
-    try:
-        symbols, total = read()
-    except (OSError, RuntimeError, subprocess.SubprocessError) as exc:
-        return [], f"NOT RUN — {tool_name} could not read {library.name}: {exc}", False
-
-    rel = (
-        library.relative_to(REPO_ROOT).as_posix()
-        if library.is_relative_to(REPO_ROOT)
-        else str(library)
-    )
-
-    if total == 0:
-        # Zero *imported* symbols is the expected, healthy result for this core, so it
-        # cannot double as evidence that the reader worked. Zero symbols of any kind
-        # cannot be right: the library defines linkedVersionString at minimum. That is a
-        # reader which parsed nothing while exiting 0 — a degraded gate, not a clean tree.
-        return [], (
-            f"NOT RUN — {tool_name} returned an empty symbol table for {rel}, including "
-            "defined symbols. The library always defines at least one, so the reader did "
-            "not parse the archive."
-        ), False
+        def read(library: Path) -> tuple[list[str], int]:
+            return symbols_dumpbin(dumpbin, library)
 
     findings: list[Finding] = []
-    seen: set[tuple[str, str]] = set()
-    for raw in symbols:
-        for rule, clause in classify(raw):
-            if (raw, rule) in seen:
-                continue
-            seen.add((raw, rule))
-            findings.append(Finding(rel, clause, f"the core imports '{raw}' — {rule}"))
-    return (
-        findings,
-        f"{len(symbols)} imported of {total} symbols, read with {tool_name} from {rel}",
-        True,
+    # Keyed on the library too: the same symbol imported by two core libraries is two
+    # findings, at two places a reader can go and look.
+    seen: set[tuple[str, str, str]] = set()
+    per_library: list[str] = []
+    imported = 0
+
+    for target in targets:
+        library = libraries[target]
+        rel = (
+            library.relative_to(REPO_ROOT).as_posix()
+            if library.is_relative_to(REPO_ROOT)
+            else str(library)
+        )
+        try:
+            symbols, total = read(library)
+        except (OSError, RuntimeError, subprocess.SubprocessError) as exc:
+            return [], f"NOT RUN — {tool_name} could not read {library.name}: {exc}", False
+
+        if total == 0:
+            # Zero *imported* symbols is the expected, healthy result for a core library,
+            # so it cannot double as evidence that the reader worked. Zero symbols of any
+            # kind cannot be right: a library that was built and linked into the tree
+            # defines something. That is a reader which parsed nothing while exiting 0 —
+            # a degraded gate, not a clean tree.
+            return [], (
+                f"NOT RUN — {tool_name} returned an empty symbol table for {rel}, "
+                "including defined symbols. A built core library defines at least one, so "
+                "the reader did not parse the archive."
+            ), False
+
+        imported += len(symbols)
+        per_library.append(f"{target}: {len(symbols)} imported of {total} symbols, {rel}")
+        for raw in symbols:
+            for rule, clause in classify(raw):
+                if (rel, raw, rule) in seen:
+                    continue
+                seen.add((rel, raw, rule))
+                findings.append(Finding(rel, clause, f"the core imports '{raw}' — {rule}"))
+
+    noun = "library" if len(targets) == 1 else "libraries"
+    # Every library is listed, not just the offending ones. The count is the evidence that
+    # coverage did not shrink, and it is only evidence if it is printed on a pass too.
+    status = "\n".join(
+        [f"{imported} imported across {len(targets)} core {noun}, read with {tool_name}"]
+        + [f"            {line}" for line in per_library]
     )
+    return findings, status, True
 
 
 # --------------------------------------------------------------------------------------
@@ -390,8 +425,8 @@ def main() -> int:
                 "ADR-PORT-04 D1 is enforced over includes *and* symbols; half a check "
                 "reported as a pass is the convention this test exists to replace. The "
                 "status line above says which half did not run, and why.",
-                "the symbol half did not inspect the library, and --require-symbols "
-                "was given",
+                "the symbol half did not inspect every core library, and "
+                "--require-symbols was given",
             )
         )
 
