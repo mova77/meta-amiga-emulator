@@ -26,19 +26,22 @@ import re
 # everything that implies I/O, threads, allocation or a platform; the per-entry note says
 # why a given header survives that subtraction.
 #
-# NOT here, on purpose, and each absence is the policy working:
-#   <cstdio> <iostream> <fstream> <print> <syncstream>  — I/O (D1: "no I/O")
-#   <thread> <mutex> <atomic> <future> <condition_variable> <stop_token> <barrier>
-#                                                       — threads (D1: "no threads")
-#   <memory> <vector> <string> <map> <set> <deque> <list> <unordered_map> <functional>
-#                                                       — allocate (D1: "no dynamic
-#                                                         allocation after initialisation";
-#                                                         the core sizes fixed-capacity
-#                                                         buffers from configuration)
-#   <chrono> <ctime>                                    — read a clock (D1: "It cannot
-#                                                         open a file, read a clock or
-#                                                         draw anything")
-#   <filesystem> <locale> <random> <regex>              — platform or allocating runtime
+# Every header this policy has an opinion about is in one of the two dicts below. That is
+# the point of having two: a contributor whose honest change trips the include half needs
+# to know whether the absence is policy — rewrite the code — or an omission — make the
+# case and widen the list. Those call for opposite responses, and a header in neither dict
+# told them nothing. check_core_boundary.py quotes the recorded reason back when a
+# deliberately excluded header is included, and says so explicitly when a header is in
+# neither list.
+#
+# Several of these entries admit a header whose every escape route is denied on the other
+# side, and the two halves being independent is what makes that safe rather than sloppy:
+# <algorithm> is admitted while stable_sort's temporary allocation is denied by symbol,
+# <variant> while the throw in std::get is. The alternative — excluding the header — puts
+# the gate where it cannot tell an allocating use from a non-allocating one, and reddens
+# honest code to catch dishonest code the other half already catches. Where an entry below
+# says "measured", the symbols were read off a compiled probe rather than argued from the
+# standard.
 #
 ALLOWED_ANGLE_INCLUDES: dict[str, str] = {
     # Types and limits. No runtime, no allocation, no platform surface.
@@ -65,6 +68,99 @@ ALLOWED_ANGLE_INCLUDES: dict[str, str] = {
     # Diagnostics. assert()'s failure path is the standard's abort path — a
     # contract violation terminating the process, not the core performing I/O.
     "cassert": "D1 — assert(); its failure path is std::abort, not core I/O.",
+    # Vocabulary types that store their value inline. Each is the fixed-capacity answer to
+    # something an allocating container header is excluded for.
+    "new": "D1 — placement new, std::launder and align_val_t: the mechanism a "
+    "fixed-capacity buffer is actually built from, which D1 mandates the shape of. The "
+    "allocating operators this header also declares are denied by symbol (_Znw/_Zdl and "
+    "the MSVC spellings), so the entry admits the construction and not the allocation.",
+    "optional": "D1 — std::optional stores its value inline; measured, it imports "
+    "nothing.",
+    "variant": "D1 — std::variant stores the alternative inline. Measured: std::get "
+    "throws on the wrong alternative and throwing allocates, which the symbol half "
+    "denies, so the core uses the non-throwing accessors and the gate still says so.",
+    "expected": "D1 — std::expected stores value or error inline: C++23's error channel "
+    "for code that must not throw, which is the core. .value() throws and is denied by "
+    "symbol.",
+    # Algorithms and views over the fixed-extent storage D1 mandates. Without these the
+    # core cannot sort its own event queue without writing the sort by hand.
+    "algorithm": "D1 — operates on the range it is handed and owns nothing. Measured: "
+    "stable_sort and inplace_merge do take a temporary buffer and import operator "
+    "new(nothrow), which the symbol half denies; sort, find, copy and rotate import "
+    "nothing. The parallel overloads need <execution>, which is excluded.",
+    "ranges": "D1 — views are lazy and non-owning; measured, a filtered view over "
+    "std::array imports nothing. ranges::to materialises into a container, and no "
+    "container header is admitted.",
+    "iterator": "D1 — iterator traits and adaptors, compile-time or trivial; measured, "
+    "imports nothing. The stream iterators it also declares need a stream, and no stream "
+    "header is admitted.",
+    "numeric": "D1 — accumulate/reduce/gcd/midpoint over a range; measured, imports "
+    "nothing. The parallel overloads need <execution>, which is excluded.",
+    "bitset": "D1 — std::bitset<N> is fixed-extent bit storage, the shape D1 mandates, "
+    "and the natural one for a chipset register. Measured: test() throws out_of_range and "
+    "therefore allocates, which the symbol half denies; operator[] does not. to_string "
+    "needs <string>, which is excluded.",
+    # Bytes and text, without a string.
+    "cstring": "D1 — memcpy/memmove/memset/memcmp; no allocation, no I/O. The symbol "
+    "policy below already classifies memcpy admissible, so excluding the header that "
+    "declares it would have the two halves contradict each other. strdup allocates and is "
+    "denied by symbol.",
+    "charconv": "D1 — to_chars/from_chars write into a caller-provided buffer: "
+    "allocation-free, locale-free and non-throwing by design, which makes it the D1-shaped "
+    "answer to <sstream>. Measured, it imports nothing.",
+}
+
+# The other half of the contract above: headers this policy has considered and refused.
+# Prose until now, and prose could not be quoted back at a contributor or asserted in a
+# test. Each entry is the reason a reader gets when the include half stops them.
+EXCLUDED_ANGLE_INCLUDES: dict[str, str] = {
+    # D1: "no I/O ... It cannot open a file".
+    "cstdio": 'D1 — "no I/O". Diagnostics leave the core through the D2 HostLog port.',
+    "iostream": 'D1 — "no I/O", and it allocates and constructs stream objects at start-up.',
+    "fstream": 'D1 — "no I/O ... It cannot open a file". Images arrive through MediaSource.',
+    "sstream": "D1 — allocates a string buffer. <charconv> is the admitted alternative.",
+    "print": 'D1 — "no I/O", and it formats into an allocating buffer.',
+    "syncstream": 'D1 — "no I/O", and synchronising a stream implies the threads D1 forbids.',
+    # D1: "no threads". ADR-CORE-01 D6's determinism argument is about a single-threaded
+    # core, so a thread imported here does not merely breach D1, it invalidates that too.
+    "thread": 'D1 — "no threads".',
+    "jthread": 'D1 — "no threads".',
+    "mutex": 'D1 — "no threads"; a lock in the core means there is something to lock against.',
+    "shared_mutex": 'D1 — "no threads".',
+    "atomic": 'D1 — "no threads"; atomics exist to be shared between them.',
+    "future": 'D1 — "no threads".',
+    "condition_variable": 'D1 — "no threads".',
+    "stop_token": 'D1 — "no threads".',
+    "barrier": 'D1 — "no threads".',
+    "latch": 'D1 — "no threads".',
+    "semaphore": 'D1 — "no threads".',
+    "execution": 'D1 — "no threads"; the parallel algorithm overloads are the reason '
+    "<algorithm> and <numeric> are admitted only without it.",
+    # D1: "no dynamic allocation after initialisation". The core sizes fixed-capacity
+    # buffers from configuration, which is what <array> and <span> are admitted for.
+    "memory": "D1 — unique_ptr/shared_ptr/allocator are the allocation D1 forbids.",
+    "memory_resource": "D1 — a polymorphic allocator is still an allocator.",
+    "vector": "D1 — grows on the heap. Use <array> sized from configuration.",
+    "string": "D1 — allocates. <string_view> is admitted; <charconv> formats without one.",
+    "map": "D1 — node-allocating. A fixed-capacity sorted <array> is the D1 shape.",
+    "set": "D1 — node-allocating.",
+    "unordered_map": "D1 — allocates buckets and nodes.",
+    "unordered_set": "D1 — allocates buckets and nodes.",
+    "deque": "D1 — allocates blocks.",
+    "list": "D1 — allocates a node per element.",
+    "forward_list": "D1 — allocates a node per element.",
+    "queue": "D1 — allocates through the container it adapts.",
+    "stack": "D1 — allocates through the container it adapts.",
+    "functional": "D1 — std::function type-erases onto the heap above its small buffer.",
+    # D1: "It cannot ... read a clock". Emulated time is the scheduler's cycle count.
+    "chrono": 'D1 — "It cannot ... read a clock"; emulated time comes from the cycle count.',
+    "ctime": 'D1 — "It cannot ... read a clock".',
+    # Platform surface, or a runtime that allocates to do its job.
+    "filesystem": "D1 — a platform surface, and it cannot open a file in any case.",
+    "locale": "D1 — allocating, stateful, and a host-configuration dependency.",
+    "random": "D1 — a seeded engine is state the determinism argument has to account for; "
+    "the core's randomness, where it needs any, is part of the machine model.",
+    "regex": "D1 — allocates, and pulls in <locale>.",
 }
 
 # A quoted include must name a header of this module. Anything else is either a platform
@@ -102,7 +198,28 @@ DENIED_SYMBOLS: tuple[tuple[str, str, frozenset[str], tuple[str, ...]], ...] = (
             # underscore: _aligned_malloc arrives here as aligned_malloc, one character
             # off the C11 aligned_alloc above — which is exactly how it got missed.
             "aligned_malloc aligned_free aligned_realloc aligned_offset_malloc "
-            "malloc_base free_base calloc_base realloc_base expand recalloc".split()
+            "malloc_base free_base calloc_base realloc_base recalloc "
+            # _expand — MSVC's grow-this-heap-block-in-place. Kept as an exact name, and
+            # kept deliberately, because review was right that "expand" is a plausible
+            # identifier in an emulator: expand a bitplane, expand an instruction field.
+            #
+            # Measured rather than argued: the core's own helpers are C++ in namespace
+            # meta::amiga::core and so arrive mangled, _ZN4meta5amiga4core6expandEj, which
+            # normalise() leaves alone by construction and which classifies admissible.
+            # The only collision left is an extern "C" symbol literally named expand that
+            # the core IMPORTS from another translation unit — and an unmangled global in
+            # the core is already outside this module's conventions and exactly the shape
+            # a platform escape takes, so a finding there is a conversation worth having
+            # rather than a false alarm.
+            #
+            # A narrower rule would have to condition on the platform or on which other
+            # symbols are present, and this file refuses conditional classification
+            # outright — see the __cxa_begin_catch note below for why: nm aggregates
+            # across archive members, so a verdict that depends on the rest of the library
+            # shifts as files enter and leave it. Being wrong here costs a red leg naming
+            # the symbol, cleared by renaming the helper or by a reviewed policy diff. It
+            # never costs a silent pass, which is the direction that matters.
+            "expand".split()
         ),
         (
             "_Znw",  # operator new / operator new[] (Itanium ABI)

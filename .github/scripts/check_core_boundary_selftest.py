@@ -23,7 +23,11 @@ import sys
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-from check_core_boundary_policy import classify  # noqa: E402
+from check_core_boundary_policy import (  # noqa: E402
+    ALLOWED_ANGLE_INCLUDES,
+    EXCLUDED_ANGLE_INCLUDES,
+    classify,
+)
 
 # (symbol as a reader would report it, expected rule or None, why this row exists)
 CASES: tuple[tuple[str, str | None, str], ...] = (
@@ -73,6 +77,20 @@ CASES: tuple[tuple[str, str | None, str], ...] = (
     ("_aligned_free", "dynamic allocation", "MSVC CRT"),
     ("_malloc_base", "dynamic allocation", "MSVC CRT internal"),
     ("_recalloc", "dynamic allocation", "MSVC CRT"),
+    # Review asked whether the exact-name `expand` entry is right, since "expand" is a
+    # plausible identifier in an emulator. These three rows are the answer, executable:
+    # the MSVC CRT spellings are caught and the core's own mangled helper is not.
+    ("_expand", "dynamic allocation", "MSVC CRT, the spelling the entry exists for"),
+    ("expand", "dynamic allocation", "the same, as COFF64 reports it"),
+    (
+        "_ZN4meta5amiga4core6expandEj",
+        None,
+        "a mangled core::expand is unaffected — normalise() leaves _Z names alone",
+    ),
+    # Measured off a compiled probe, not argued: this is what libc++'s stable_sort and
+    # inplace_merge import, and it is the entire reason <algorithm> can be admitted.
+    ("__ZnwmRKSt9nothrow_t", "dynamic allocation", "operator new(nothrow), from stable_sort"),
+    ("_ZdlPvSt11align_val_t", "dynamic allocation", "sized/aligned delete, its counterpart"),
     # --- I/O ---------------------------------------------------------------------------
     ("fopen", "I/O", ""),
     ("_fopen", "I/O", ""),
@@ -109,6 +127,101 @@ CASES: tuple[tuple[str, str | None, str], ...] = (
 )
 
 
+# --------------------------------------------------------------------------------------
+# Include policy
+# --------------------------------------------------------------------------------------
+#
+# Every header PR #3's review found in neither list. The rule the rows below enforce is
+# simply that none of them can sit in neither list again: a contributor who trips the
+# include half must be able to read off whether the absence is policy or an omission,
+# because those call for opposite responses.
+REVIEWED_HEADERS: tuple[str, ...] = (
+    "new",
+    "optional",
+    "variant",
+    "expected",
+    "algorithm",
+    "ranges",
+    "iterator",
+    "numeric",
+    "bitset",
+    "cstring",
+    "charconv",
+)
+
+# (header admitted, a symbol the escape route inside it imports, the rule that must still
+# catch that symbol, why the row exists).
+#
+# This is what makes admitting these headers safe rather than a quiet loosening, and it is
+# the part worth having a test for. Each admitted header has some corner that would breach
+# D1; each corner is denied on the other half. Prose saying so rots the moment somebody
+# edits DENIED_SYMBOLS. A row fails.
+COMPLEMENTARY: tuple[tuple[str, str, str, str], ...] = (
+    (
+        "algorithm",
+        "__ZnwmRKSt9nothrow_t",
+        "dynamic allocation",
+        "stable_sort and inplace_merge take a temporary buffer — measured",
+    ),
+    ("new", "__Znwm", "dynamic allocation", "<new> declares the allocating operators too"),
+    ("new", "??2@YAPEAX_K@Z", "dynamic allocation", "and their MSVC spellings"),
+    (
+        "variant",
+        "___cxa_allocate_exception",
+        "dynamic allocation",
+        "std::get throws on the wrong alternative, and throwing allocates — measured",
+    ),
+    ("expected", "___cxa_throw", "dynamic allocation", ".value() throws on an error"),
+    (
+        "bitset",
+        "___cxa_allocate_exception",
+        "dynamic allocation",
+        "bitset::test throws out_of_range — measured; operator[] does not",
+    ),
+    ("cstring", "strdup", "dynamic allocation", "the one allocating function it reaches"),
+    ("iterator", "_ZSt4cout", "I/O", "the stream iterators it declares need a stream"),
+    ("ranges", "_Znwm", "dynamic allocation", "ranges::to materialises into a container"),
+    ("numeric", "_Znwm", "dynamic allocation", "the same allocator, if a range is built"),
+    ("charconv", "fopen", "I/O", "formatting is not a reason for the core to open a file"),
+)
+
+
+def check_include_policy() -> list[str]:
+    failures: list[str] = []
+
+    both = sorted(set(ALLOWED_ANGLE_INCLUDES) & set(EXCLUDED_ANGLE_INCLUDES))
+    if both:
+        failures.append(f"admitted and refused at once: {both}")
+
+    for header in REVIEWED_HEADERS:
+        allowed = header in ALLOWED_ANGLE_INCLUDES
+        excluded = header in EXCLUDED_ANGLE_INCLUDES
+        if not allowed and not excluded:
+            failures.append(
+                f"<{header}> is in neither list, so the gate cannot tell a contributor "
+                "whether its absence is policy or an omission"
+            )
+
+    for header, clause in ALLOWED_ANGLE_INCLUDES.items():
+        if "D1" not in clause and "D5" not in clause:
+            failures.append(f"<{header}> is admitted without citing a clause: {clause!r}")
+    for header, reason in EXCLUDED_ANGLE_INCLUDES.items():
+        if "D1" not in reason and "D5" not in reason:
+            failures.append(f"<{header}> is refused without citing a clause: {reason!r}")
+
+    for header, symbol, rule, note in COMPLEMENTARY:
+        if header not in ALLOWED_ANGLE_INCLUDES:
+            failures.append(f"<{header}> is no longer admitted, so this row is stale")
+            continue
+        rules = [name for name, _clause in classify(symbol)]
+        if rule not in rules:
+            failures.append(
+                f"<{header}> is admitted because {symbol!r} is still denied as {rule!r}, "
+                f"and it now classifies as {rules or 'clean'}  ({note})"
+            )
+    return failures
+
+
 def main() -> int:
     failures: list[str] = []
     for symbol, expected, note in CASES:
@@ -125,14 +238,21 @@ def main() -> int:
                 f"{rules or 'clean'}" + (f"  ({note})" if note else "")
             )
 
-    print(f"check_core_boundary policy self-test — {len(CASES)} cases")
+    failures.extend(check_include_policy())
+
+    print(
+        f"check_core_boundary policy self-test — {len(CASES)} symbol cases, "
+        f"{len(ALLOWED_ANGLE_INCLUDES)} headers admitted and "
+        f"{len(EXCLUDED_ANGLE_INCLUDES)} refused, {len(COMPLEMENTARY)} of those "
+        "admissions resting on a symbol that is still denied"
+    )
     if failures:
         for failure in failures:
             print(f"::error::{failure}")
             print(f"  {failure}")
-        print(f"FAIL — {len(failures)} of {len(CASES)} cases wrong.")
+        print(f"FAIL — {len(failures)} expectation(s) wrong.")
         return 1
-    print("PASS — every case classified as expected.")
+    print("PASS — every case classified as expected, and every header accounted for.")
     return 0
 
 
