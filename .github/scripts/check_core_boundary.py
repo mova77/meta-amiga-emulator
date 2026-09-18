@@ -20,7 +20,8 @@
 #             src/core/**, against a denylist. Catches an escape that reaches libc through
 #             a header that is itself admissible, and an escape introduced by a header
 #             this scan cannot see because it was pulled in transitively. Which libraries
-#             those are is discovered from the add_library() calls under src/core/, so
+#             those are is discovered from the add_library() calls that compile core
+#             sources, wherever they are declared, so
 #             both halves cover the same directory and a new core library comes under the
 #             symbol scan the day it is declared — see "Library discovery" below.
 #
@@ -67,8 +68,8 @@
 #                                   behind each entry; widening it is a diff to that file
 #   check_core_boundary_discovery.py
 #                                   which libraries the symbol half must read, derived
-#                                   from the add_library() calls under src/core/ so that
-#                                   both halves cover the same directory
+#                                   from the add_library() calls that compile core
+#                                   sources, so both halves cover the same directory
 #   check_core_boundary_selftest.py asserts the policy's verdict on known symbol
 #                                   spellings, so a gap fails a test rather than passing
 #                                   a scan. CI runs it before the scan below.
@@ -321,8 +322,8 @@ def check_symbols(build_dir: Path | None) -> tuple[list[Finding], str, bool]:
         ), False
     if not targets:
         return [], (
-            "NOT RUN — no library target is declared under src/core/. The symbol half "
-            "derives its subject from add_library() there, so finding none means either "
+            "NOT RUN — no library target compiles anything under src/core/. The symbol "
+            "half derives its subject from add_library(), so finding none means either "
             "the core declares no library or this scan can no longer read the "
             "declaration. Neither means there is nothing to check."
         ), False
