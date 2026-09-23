@@ -260,7 +260,63 @@ slot.
 
 ---
 
-## 7. Verification state
+## 7. Predicted CPU bus cycles per line — the target for test 14
+
+SPIKE-S0 test 14 compares CPU slots available per line, as measured on hardware, against
+what the transcribed table predicts. The measurement has not run; this is the predicted
+column, published ahead of it so the measurement has something to disagree with.
+
+PAL, 227 colour clocks, clocks `$00`–`$E2`: **114 even, 113 odd**. Normal-width display,
+`DDFSTRT` `$38` / `$3C`, 20 words lores and 40 hires.
+
+The two parities are counted separately and deliberately not added together. Even clocks
+are the 68000's own memory-access half and nothing but bitplane DMA takes them. Free odd
+clocks are contended between CPU, Blitter and Copper, and who wins is bus arbitration —
+SPIKE-S0 §4 and the bus-arbitration work, not this table.
+
+**Even clocks, the 68000's half**
+
+| Display | Bitplane even slots taken | Even clocks left to the 68000 | Measured |
+|---|---|---|---|
+| Blanking / bitplane DMA off | 0 | 114 | — |
+| Lores, 1–4 planes | 0 | 114 | — |
+| Lores, 5 planes | 20 (plane 5, offset 6) | 94 | — |
+| Lores, 6 planes | 40 (planes 5 and 6, offsets 6 and 2) | 74 | — |
+| Hires, 1–2 planes | 0 | 114 | — |
+| Hires, 3 planes | 40 (plane 3, offset 2) | 74 | — |
+| Hires, 4 planes | 80 (planes 3 and 4, offsets 2 and 0) | 34 | — |
+
+This row set *is* the manual's four-or-fewer-bitplanes claim in numbers: up to four lores
+planes cost the 68000 nothing, the fifth costs it 20 cycles a line and the sixth another
+20 — half of the 40 it had inside the fetch window.
+
+**Odd clocks, contended**
+
+Fixed allocations account for 27 odd clocks when every channel is enabled: 4 refresh,
+3 disk, 4 audio, 16 sprite. Bitplane DMA takes `min(planes, 4) × 20` more in lores and
+`min(planes, 2) × 40` in hires.
+
+| Display, all DMA enabled | Odd clocks free | Measured |
+|---|---|---|
+| Bitplane DMA off | 86 | — |
+| Lores, 2 planes | 46 | — |
+| Lores, 4–6 planes | 6 | — |
+| Hires, 1 plane | 46 | — |
+| Hires, 2–4 planes | 6 | — |
+
+**Carry a ±1 on every figure in this section.** The fourth refresh slot's index is
+undetermined (§3.1), so whether it falls inside the line is not known. A measurement that
+comes out one clock off is evidence about *that* slot, not a refutation of the table.
+
+Each row is also a DMA-enable combination the measurement program must set up: `DMACON`
+with disk, audio, sprite and bitplane DMA independently off and on, at each plane count,
+in both resolutions. The program itself is out of this document's scope — SPIKE-S2 §3.1
+requires its timing loops to be hand-written 68000 assembly, and it belongs under
+`tests/hardware/`.
+
+---
+
+## 8. Verification state
 
 The spike's standard is two independent public statements per table, or an explicit
 single-source mark.
@@ -284,7 +340,7 @@ beside the predicted one.
 
 ---
 
-## 8. Divergences found
+## 9. Divergences found
 
 Recorded as findings, not silently resolved.
 
@@ -319,7 +375,7 @@ Recorded as findings, not silently resolved.
 
 ---
 
-## 9. Can the slot allocator start?
+## 10. Can the slot allocator start?
 
 **Partly.** Not *yes*.
 
@@ -338,3 +394,18 @@ Recorded as findings, not silently resolved.
 
 Six subsystems must not be built on an unverified table. One allocator, written to be
 driven by this data and tested against it as *transcribed* rather than *measured*, may be.
+
+### 9.1 Deliverables the spike asked for that are not here
+
+- **`src/core/chipset/slot_tables.hpp`.** The story asks for a table file the build
+  consumes. The data is here in machine-readable form; turning it into a header is a
+  change to the core library, which this piece of work does not touch. The slot allocator generates
+  or writes it from [dma-slot-allocation.yaml](dma-slot-allocation.yaml) so there is still
+  one source of these numbers.
+- **Measurement programs under `tests/hardware/`.** Not written. They are the hardware
+  half of the spike, they need the machine to be worth anything, and SPIKE-S2 §3.1
+  requires their timing loops to be hand-written 68000 assembly. §7 gives them their
+  target table so they have something to fill in.
+- **A measured column anywhere.** There is no machine. Every number in this document is
+  paper, and the three-way split in §9 says which parts would survive a surprise and
+  which would not.
