@@ -92,22 +92,29 @@ A scanline is 227 colour clocks, each of which is one DMA slot. Slots are alloca
 fixed priority order, and the CPU gets what is left:
 
 ```
-slot  $00 $01 $02 $03 $04 $05 $06 $07 $08 $09 $0A $0B..$1A  $1C..
-      ref dsk ref dsk ref dsk  —  au0 au1 au2 au3 sprite0-7  bitplanes
+clock  $01 $03 $05   $07 $09 $0B   $0D $0F $11 $13   $15 .. $33   $38 ..
+       memory refresh  disk DMA     audio 0,1,2,3    sprites 0-7  bitplanes
 ```
 
-> **The slot indices above are indicative, not yet authoritative.** The exact allocation is
-> transcribed from the *Amiga Hardware Reference Manual* DMA time-slot table and verified
-> against hardware as an acceptance condition of
-> [SPIKE-S0](spikes/SPIKE-S0-core-timeline.md) §3.2. Nothing may be implemented against
-> this diagram until that item closes.
+The fixed allocations are all **odd** clocks; the 68000's memory-access cycle is the even
+one. Bitplane DMA claims slots from `DDFSTRT` to `DDFSTOP` in a repeating group — 8 colour
+clocks in lores, 4 in hires — and past four lores bitplanes it starts taking even clocks
+too, which is how a deep display starves the CPU. The Copper takes free even slots; the
+Blitter takes free slots subject to `BLTPRI`; the CPU takes odd slots nothing claimed and
+whatever even slots are left. Programs depend on exactly that starvation.
 
-Refresh takes four slots, disk DMA three, audio four, sprites sixteen (two per sprite),
-and bitplane DMA claims slots from `DDFSTRT` to `DDFSTOP` — 4 slots per line per bitplane
-in lores, 8 in hires, 8 or 16 in AGA fetch modes. The Copper takes free even slots; the
-Blitter takes free slots subject to `BLTPRI`; the CPU takes odd slots and whatever even
-slots nothing else claimed. Enabling a seventh bitplane in hires starves the CPU almost
-completely, and programs depend on exactly that.
+**The authoritative table is
+[docs/reference/dma-slot-allocation.md](reference/dma-slot-allocation.md)**, transcribed
+from the *Amiga Hardware Reference Manual* with a citation per row, and a machine-readable
+copy the allocator is driven by. The diagram above is a summary of it, not a second source.
+
+> **Transcribed from the manual; not yet verified against hardware.** Three things remain
+> open and are marked as such in the reference table rather than filled in: the index of
+> the fourth memory-refresh slot, AGA fetch modes, and `DDFSTRT`/`DDFSTOP` behaviour
+> outside the documented range. Hardware verification is an acceptance condition of
+> [SPIKE-S0](spikes/SPIKE-S0-core-timeline.md) §3.2–§3.3 and has not been met, so the
+> spike remains Draft and any test written against these numbers asserts the manual, not
+> the machine.
 
 **Requirement T-1.** Every chipset access, CPU bus cycle, Copper instruction, Blitter
 word and audio sample fetch is scheduled against this slot table. No subsystem advances
