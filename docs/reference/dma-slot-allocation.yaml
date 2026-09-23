@@ -105,3 +105,24 @@ limits:
   # requires following the hardware rather than clamping, so this must be measured before
   # any clamp is written.
   out_of_range_behaviour: null
+
+# Predicted CPU bus cycles available per PAL scanline (227 clocks: 114 even, 113 odd),
+# normal-width display. This is the target column for SPIKE-S0 test 14; the measured
+# column does not exist yet. Even clocks are the 68000's own half and only bitplane DMA
+# takes them; free odd clocks are contended with Blitter and Copper, which is MAE-12's
+# problem, so the two are never summed. Carry +/-1: the fourth refresh slot's index is
+# undetermined, so whether it falls inside the line is not known.
+predicted_cpu_slots_pal:
+  even_clocks_total: 114
+  odd_clocks_total: 113
+  fixed_odd_slots: 27               # 4 refresh + 3 disk + 4 audio + 16 sprite
+  uncertainty: 1
+  even_left_to_cpu:                 # by mode and enabled bitplane count
+    bitplane_dma_off: 114
+    lores: { 1: 114, 2: 114, 3: 114, 4: 114, 5: 94, 6: 74 }
+    hires: { 1: 114, 2: 114, 3: 74, 4: 34 }
+  odd_free_all_dma_enabled:
+    bitplane_dma_off: 86
+    lores: { 1: 66, 2: 46, 3: 26, 4: 6, 5: 6, 6: 6 }
+    hires: { 1: 46, 2: 6, 3: 6, 4: 6 }
+  measured: null                    # no machine has run this
