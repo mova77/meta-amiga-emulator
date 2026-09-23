@@ -68,9 +68,10 @@ ceiling — §4 shows six planes taking 120 of the 160 clocks in the fetch windo
 
 **Parity is the organising rule.** S1 states the 68000 uses only the even-numbered
 memory access cycles, and S4 draws the even clock as the 68000's memory-access half.
-Every fixed allocation in §3 lands on an **odd** clock, and so do the first four
-bitplane slots; planes 5 and 6 are what break the arrangement, which is exactly what S1
-says happens past four planes.
+Every fixed allocation in §3 lands on an **odd** clock, and so do all four low-resolution
+bitplane slots of a four-plane display; planes 5 and 6 are what break the arrangement,
+which is exactly what S1 says happens past four planes. High resolution breaks it sooner,
+because its 4-clock group has only two odd slots to give.
 
 ---
 
