@@ -144,34 +144,100 @@ Cost is amortised across 227 slots and rebuilds are rare — the registers that 
 change a few times per line at most, even under an aggressive Copper list. Register writes
 mark `dirty` rather than rebuilding, so a Copper burst of eight writes costs one rebuild.
 
-### 3.2 Fixed allocations — TO BE TRANSCRIBED
+### 3.2 Fixed allocations — TRANSCRIBED, NOT YET MEASURED
 
 Memory refresh, disk DMA and the four audio channels occupy fixed slots at the start of
-every line, followed by sixteen sprite slots. The structure is settled; **the exact slot
-numbers are not yet transcribed into this document and must not be guessed.**
+every line, followed by sixteen sprite slots.
 
-Work item, and it gates this spike's acceptance:
-
-- [ ] Transcribe the DMA time-slot allocation table verbatim from the *Amiga Hardware
+- [x] Transcribe the DMA time-slot allocation table verbatim from the *Amiga Hardware
       Reference Manual* (3rd ed., ch. 6) — refresh, disk, audio, sprite slot indices.
 - [ ] Verify the transcription against hardware with an original test program that
       measures CPU cycles available per line under each DMA enable combination.
 - [ ] Record any divergence between the manual and the hardware here, with the measurement.
 
-The indicative layout in specification §3 is exactly that — indicative — until this item
-closes. Nothing may be built on it before then.
+Source: *Amiga Hardware Reference Manual*, 3rd ed., **Figure 6-9 — DMA Time Slot
+Allocation / Horizontal Line**, with counts from ch. 6 *Blitter Hardware* →
+**Blitter Operations and System DMA**. Slot indices are colour clocks within the line,
+hex, as the figure labels them.
 
-### 3.3 Bitplane fetch patterns — TO BE TRANSCRIBED
+| Device | Slots | Count |
+|--------|-------|-------|
+| Memory refresh | `$01`, `$03`, `$05`, + one further slot, index **UNVERIFIED** | 4 |
+| Disk DMA | `$07`, `$09`, `$0B` | 3 |
+| Audio 0 / 1 / 2 / 3 | `$0D` / `$0F` / `$11` / `$13` | 4 |
+| Sprite 0 … 7 | `$15`,`$17` · `$19`,`$1B` · `$1D`,`$1F` · `$21`,`$23` · `$25`,`$27` · `$29`,`$2B` · `$2D`,`$2F` · `$31`,`$33` | 16 |
 
-Bitplane DMA claims slots inside the `DDFSTRT`..`DDFSTOP` window in a repeating pattern
-whose shape depends on fetch mode and bitplane count: a 4-slot group in lores, 8 in hires,
-and 8 or 16 under AGA's wider fetch modes. Which slot within the group belongs to which
-bitplane is a published table.
+Every slot is claimed only when its device is enabled — the figure's own footnote says
+these operations take slots only if the associated operation is being performed. That is
+what makes `slot_owner` a function of `DMACON` rather than of the line alone.
 
-- [ ] Transcribe the per-fetch-mode, per-bitplane-count slot pattern.
+**Every fixed allocation is an odd clock.** The manual states the 68000 uses only the
+even-numbered cycles, and Figure 6-10 draws the even clock as its memory-access half.
+That parity is the invariant to assert in test 12, not just the individual indices.
+
+**The fourth refresh slot is not determined.** Figure 6-9 draws it one cell to the left
+of the `$00` tick and then disclaims the offset in a footnote of its own: the chart was
+"adjusted" so that data-fetch start and display start come out right. Nothing in the
+manual says what index that slot carries. It is left unfilled rather than guessed.
+
+The derivation — how the figure was measured, the three independent checks that fix
+which colour clock each drawn cell is, and seven divergences between the manual's own
+statements — is in
+[docs/reference/dma-slot-allocation.md](../reference/dma-slot-allocation.md), with a
+machine-readable copy beside it that the slot allocator compiles against so the allocator is driven
+by this data rather than restating it.
+
+### 3.3 Bitplane fetch patterns — OCS/ECS TRANSCRIBED, AGA UNSOURCED
+
+Bitplane DMA claims slots inside the `DDFSTRT`..`DDFSTOP` window in a repeating group:
+8 colour clocks in lores, 4 in hires, and 8 or 16 under AGA's wider fetch modes.
+
+- [x] Transcribe the per-fetch-mode, per-bitplane-count slot pattern — **lores and hires
+      only**. AGA is not transcribed and is not guessed; see below.
 - [ ] Verify against hardware, including the behaviour when `DDFSTRT`/`DDFSTOP` are set
       outside their documented ranges — which software does routinely and which the
       display must follow rather than clamp (specification §4).
+
+Source: *Amiga Hardware Reference Manual*, 3rd ed., **Figure 6-9**, strata *320 mode
+Bit-Plane DMA, by plane* and *640 mode Bit-Plane DMA, by plane*. Normal `DDFSTRT` and
+`DDFSTOP` values are from ch. 3 *Playfield Hardware* → **Telling the System How to Fetch
+and Display Data**. Offsets are from the group's first clock, so the table does not move
+when `DDFSTRT` does.
+
+**Low resolution — 8-clock group**, normal `DDFSTRT` `$38`, `DDFSTOP` `$D0`, 20 words:
+
+| Offset | 0 | 1 | 2 | 3 | 4 | 5 | 6 | 7 |
+|---|---|---|---|---|---|---|---|---|
+| 6 planes | free | 4 | 6 | 2 | free | 3 | 5 | 1 |
+| ≤4 planes | free | 4 | free | 2 | free | 3 | free | 1 |
+
+**High resolution — 4-clock group**, normal `DDFSTRT` `$3C`, `DDFSTOP` `$D4`, 40 words:
+
+| Offset | 0 | 1 | 2 | 3 |
+|---|---|---|---|---|
+| 4 planes | 4 | 2 | 3 | 1 |
+
+A plane that is not enabled does not take its slot, which is what makes the ≤4-plane row
+follow from the 6-plane one. Two of chapter 6's arithmetic claims fall out of the lores
+pattern and neither was fitted to it: four planes take offsets 1, 3, 5, 7 over 20 words =
+**80 cycles**, the figure the manual gives; and planes 5 and 6 are the first to land on
+even offsets, taking two of the four clocks the 68000 had — the manual's **50 percent**.
+In hires nothing is free, so a full-width four-plane hires display locks the CPU out of
+the fetch window entirely rather than halving it.
+
+**AGA fetch modes are not transcribed.** `FMODE` and the 8/16-slot groups postdate the
+3rd edition, Appendix C covers ECS only, and no other permitted Commodore document is in
+hand. Until one is, this clause is unmet and the allocator is written for OCS/ECS.
+Obtaining a named AGA hardware document is its own work item.
+
+**Out-of-range `DDFSTRT`/`DDFSTOP` is not transcribed either.** The manual gives two hard
+points — no fetch before `$18`, a hardware fetch stop at `$D8` — and says nothing about
+what happens beyond them. Specification §4 requires following the hardware rather than
+clamping, so this is a measurement and no clamp may be written before it is made.
+
+Hardware limits that *are* stated, and that test 16 will check against: earliest fetch
+`$18`, hardware fetch stop `$D8`, and five clocks of latency before fetched data reaches
+the screen.
 
 The allocator is written to be **driven by** these tables, so transcribing them is data
 entry against a stable interface rather than a redesign. That is the point of separating
@@ -258,6 +324,30 @@ Written before the implementation, and the acceptance criteria for the foundatio
 This spike is accepted when §3.2 and §3.3 are transcribed and verified, and tests 1–11
 exist and pass. Tests 12–20 become the acceptance criteria of the slot-allocator and
 bus-protocol stories that follow it.
+
+### 6.1 Re-evaluated 2026-09-23, after the slot-table transcription
+
+**Status stays Draft.** The transcription half of §3.2 and §3.3 is done; the verification
+half is not, and acceptance asks for both. Moving the status now would let six subsystems
+be built on a table whose only witness is a manual — the failure ADR-CORE-01 exists to
+prevent.
+
+| Condition | State |
+|---|---|
+| §3.2 transcribed | Yes, less the fourth refresh slot |
+| §3.3 transcribed | Lores and hires yes; AGA unsourced; out-of-range DDF unsourced |
+| §3.2 / §3.3 verified against hardware | **No.** Not attempted — no machine |
+| Tests 1–11 exist and pass | Unchanged by this work |
+
+**What unblocks it.** A PAL A500, OCS, 512 KB chip RAM, running an original measurement
+program that counts CPU bus cycles available per line under each DMA enable combination
+(test 14), plus a named Commodore AGA hardware document for the §3.3 AGA clause. Those are
+two separate procurement problems and neither is a coding task.
+
+**What may start meanwhile.** The slot allocator may be built against the transcribed
+tables, because they are data behind a stable interface and a later correction is an edit
+to one file. Its tests must assert the *manual*, not the hardware, and say so — a test
+named as if it measured something it did not is worse than no test.
 
 A reference implementation of §2 exists on the parked branch `spike/core-timeline` and is
 **not merged**: it was written before this spike, which is the breach that produced this
