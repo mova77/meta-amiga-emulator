@@ -9,10 +9,9 @@
 # what the core may depend on means editing `check_core_boundary_policy.py` beside it,
 # which makes it a reviewable policy change rather than an include nobody notices.
 #
-# At this stage the library holds only the version accessor. It exists so the build
-# foundation is provably exercised end to end — configure_file, the include path, the
-# warning set, the sanitizer flags and the link step — rather than being declared correct
-# on an empty target. Subsystems land into this structure.
+# Subsystems land into this structure; chipset/ holds the DMA slot allocator, whose
+# tables are generated from docs/reference/dma-slot-allocation.yaml by
+# scripts/gen_slot_tables.py and checked in, so the build itself needs no Python.
 
 configure_file(
     "${CMAKE_CURRENT_SOURCE_DIR}/include/meta_amiga/core/version.hpp.in"
@@ -20,7 +19,8 @@ configure_file(
     @ONLY)
 
 add_library(meta-amiga-core STATIC
-    version.cpp)
+    version.cpp
+    chipset/slot_allocator.cpp)
 
 add_library(meta-amiga::core ALIAS meta-amiga-core)
 
