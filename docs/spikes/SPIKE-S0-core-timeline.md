@@ -31,6 +31,10 @@ the Amiga; the allocator knows nothing about time beyond the current beam positi
 
 ## 2. Scheduler
 
+Diagrams of the scheduler as merged — its place in the core, a `run_until` with a
+same-cycle tie, and the life of one device's event — are in
+[docs/architecture/scheduler.md](../architecture/scheduler.md).
+
 ### 2.1 Shape
 
 The naive choice is a priority queue of `(cycle, callback)`. It is the wrong shape here.
@@ -346,7 +350,7 @@ prevent.
 | §3.2 transcribed | Yes, less the fourth refresh slot |
 | §3.3 transcribed | Lores and hires yes; AGA unsourced; out-of-range DDF unsourced |
 | §3.2 / §3.3 verified against hardware | **No.** Not attempted — no machine |
-| Tests 1–11 exist and pass | Unchanged by this work |
+| Tests 1–11 exist and pass | **Yes**, since the scheduler merged — see §6.2 |
 
 **What unblocks it.** A PAL A500, OCS, 512 KB chip RAM, running an original measurement
 program that counts CPU bus cycles available per line under each DMA enable combination
@@ -358,6 +362,38 @@ tables, because they are data behind a stable interface and a later correction i
 to one file. Its tests must assert the *manual*, not the hardware, and say so — a test
 named as if it measured something it did not is worse than no test.
 
-A reference implementation of §2 exists on the parked branch `spike/core-timeline` and is
-**not merged**: it was written before this spike, which is the breach that produced this
-document. It stands as the shape under review, not as accepted code.
+A reference implementation of §2 existed on the parked branch `spike/core-timeline`,
+written before this spike, which is the breach that produced this document. It has since
+been reviewed against §2 and merged; §6.2 records what landed.
+
+### 6.2 Updated 2026-10-03, after the scheduler merged
+
+**Status still stays Draft**, for the reason in §6.1: the hardware verification of §3.2 and
+§3.3 is untouched. What changed is the last row of the table above. The scheduler of §2 is
+on `main` (`src/core/scheduler.cpp`), with the §2.4 clamp correction, and tests 1–11 are in
+`tests/unit/scheduler_test.cpp` and pass on every preset CI runs:
+
+| # | Test function |
+|---|---|
+| 1 | `dispatchesInCycleOrder` |
+| 2 | `tiesBreakByDeviceOrder` |
+| 3 | No dedicated function: the observed cycle is asserted in 1, 2, 4, 5 and `aDeadlineAtNowDispatchesNothing` |
+| 4 | `handlersMayRescheduleThemselves` |
+| 5 | `eventsBeyondTheDeadlineStayPending` |
+| 6 | `schedulingReplacesRatherThanQueues` |
+| 7 | `cancelWithdrawsAnEvent` |
+| 8 | `unboundDevicesDispatchAsNoOps` |
+| 9 | `runningBackwardsIsANoOp` |
+| 10 | No dedicated function: asserted in 1, 4, 5, 8 and `aDeadlineAtNowDispatchesNothing` — for calls that advance time; see 9 |
+| 11 | `identicalSchedulesProduceIdenticalTraces`, whose periods collide so the tie-break decides six same-cycle pairs |
+
+Four tests go beyond the plan: `idleSchedulerReportsNever`,
+`aDeadlineAtNowDispatchesNothing` (an event due exactly at `now()` waits for the next call
+with a later deadline), `scheduleInSaturatesAtNever`, and the release-only
+`aPastScheduleAdvancesRatherThanHanging` from §2.4.
+
+Test 10's wording, "in every case", is wider than the code and than test 9: a deadline at or
+before `now()` leaves `now()` where it was. The slot allocator of §3.1 has also landed,
+against the transcribed tables as permitted above, but is not yet driven by the scheduler.
+Diagrams of both as built, and the other points where they differ from this spike, are in
+[docs/architecture/scheduler.md](../architecture/scheduler.md).
