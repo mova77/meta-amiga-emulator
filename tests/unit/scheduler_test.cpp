@@ -209,30 +209,77 @@ void runningBackwardsIsANoOp() {
     CHECK_EQ(trace.count, std::size_t{0});
 }
 
+/// The deadline is exclusive of `now()`: SPIKE-S0 §2.3 returns at once when
+/// `deadline <= now`. So an event due exactly at `now()` waits for the next call with a
+/// later deadline, and still observes its own cycle when it runs.
+void aDeadlineAtNowDispatchesNothing() {
+    Scheduler scheduler;
+    Trace trace;
+    scheduler.bind(Device::Cpu, traceCpu, &trace);
+
+    scheduler.runUntil(100);
+    scheduler.scheduleAt(Device::Cpu, 100);
+    scheduler.runUntil(100);
+
+    CHECK_EQ(trace.count, std::size_t{0});
+    CHECK(scheduler.pending(Device::Cpu));
+    CHECK_EQ(scheduler.now(), Cycle{100});
+
+    scheduler.runUntil(101);
+    CHECK_EQ(trace.count, std::size_t{1});
+    CHECK_EQ(trace.entries[0].at, Cycle{100});
+    CHECK_EQ(scheduler.now(), Cycle{101});
+}
+
+/// A delta that would carry past `kNever` saturates rather than wrapping. Wrapped, it would
+/// land in the past, which in a release build fires on the very next cycle.
+void scheduleInSaturatesAtNever() {
+    Scheduler scheduler;
+    Trace trace;
+    scheduler.bind(Device::Cpu, traceCpu, &trace);
+    scheduler.runUntil(10);
+
+    scheduler.scheduleIn(Device::Cpu, kNever);
+    CHECK_EQ(scheduler.dueAt(Device::Cpu), kNever);
+    CHECK(!scheduler.pending(Device::Cpu));
+
+    scheduler.scheduleIn(Device::Cpu, kNever - 9);  // one past the largest exact delta
+    CHECK_EQ(scheduler.dueAt(Device::Cpu), kNever);
+
+    scheduler.scheduleIn(Device::Cpu, kNever - 11);  // exact, does not saturate
+    CHECK_EQ(scheduler.dueAt(Device::Cpu), kNever - 1);
+
+    scheduler.scheduleIn(Device::Cpu, kNever);
+    scheduler.runUntil(1000);
+    CHECK_EQ(trace.count, std::size_t{0});
+}
+
 /// SPIKE-S0 test 11. The determinism claim is that the dispatch trace is a pure function
 /// of the schedule calls — so running the same schedule twice, with the calls issued in a
-/// different order the second time, must produce identical traces.
+/// different order the second time, must produce identical traces. The periods collide
+/// (all three at 12 and 24, Blitter and Cpu at 6 and 18), so the order within a
+/// cycle is decided by the tie-break and not by which call happened to come first.
 void identicalSchedulesProduceIdenticalTraces() {
     const auto run = [](bool reversed, Trace& trace) {
         Scheduler scheduler;
-        Periodic copper{&scheduler, &trace, 11, Device::Copper};
-        Periodic blitter{&scheduler, &trace, 13, Device::Blitter};
-        Periodic cpu{&scheduler, &trace, 7, Device::Cpu};
+        Periodic copper{&scheduler, &trace, 4, Device::Copper};
+        Periodic blitter{&scheduler, &trace, 3, Device::Blitter};
+        Periodic cpu{&scheduler, &trace, 6, Device::Cpu};
 
         scheduler.bind(Device::Copper, tick, &copper);
         scheduler.bind(Device::Blitter, tick, &blitter);
         scheduler.bind(Device::Cpu, tick, &cpu);
 
         if (reversed) {
-            scheduler.scheduleAt(Device::Cpu, 7);
-            scheduler.scheduleAt(Device::Blitter, 13);
-            scheduler.scheduleAt(Device::Copper, 11);
+            scheduler.scheduleAt(Device::Cpu, 6);
+            scheduler.scheduleAt(Device::Blitter, 3);
+            scheduler.scheduleAt(Device::Copper, 4);
         } else {
-            scheduler.scheduleAt(Device::Copper, 11);
-            scheduler.scheduleAt(Device::Blitter, 13);
-            scheduler.scheduleAt(Device::Cpu, 7);
+            scheduler.scheduleAt(Device::Copper, 4);
+            scheduler.scheduleAt(Device::Blitter, 3);
+            scheduler.scheduleAt(Device::Cpu, 6);
         }
-        scheduler.runUntil(31);
+        scheduler.runUntil(24);
     };
 
     Trace first;
@@ -240,17 +287,36 @@ void identicalSchedulesProduceIdenticalTraces() {
     run(false, first);
     run(true, second);
 
-    CHECK(first.count > 0);
+    // Blitter 3..24 (8), Copper 4..24 (6), Cpu 6..24 (4).
+    CHECK_EQ(first.count, std::size_t{18});
     CHECK_EQ(first.count, second.count);
     for (std::size_t i = 0; i < first.count && i < second.count; ++i) {
         CHECK(first.entries[i].device == second.entries[i].device);
         CHECK_EQ(first.entries[i].at, second.entries[i].at);
     }
 
-    // Cpu at 7, 14, 21, 28; Copper at 11, 22; Blitter at 13, 26 — so the earliest event
-    // is the Cpu's, despite it being the lowest-priority device.
-    CHECK(first.entries[0].device == Device::Cpu);
-    CHECK_EQ(first.entries[0].at, Cycle{7});
+    // Within a cycle, dispatch follows Device order. Count the ties so the test fails if
+    // a change of periods ever stops producing them.
+    std::size_t ties = 0;
+    for (std::size_t i = 1; i < first.count; ++i) {
+        if (first.entries[i].at == first.entries[i - 1].at) {
+            ++ties;
+            CHECK(first.entries[i - 1].device < first.entries[i].device);
+        }
+    }
+    CHECK_EQ(ties, std::size_t{6});
+
+    // The three-way collision at 12, spelled out.
+    std::size_t at12 = 0;
+    while (at12 < first.count && first.entries[at12].at != Cycle{12}) {
+        ++at12;
+    }
+    CHECK(at12 + 2 < first.count);
+    if (at12 + 2 < first.count) {
+        CHECK(first.entries[at12].device == Device::Copper);
+        CHECK(first.entries[at12 + 1].device == Device::Blitter);
+        CHECK(first.entries[at12 + 2].device == Device::Cpu);
+    }
 }
 
 /// Scheduling in the past is a bug, and in a debug build the assertion catches it first.
@@ -287,6 +353,8 @@ int main() {
     idleSchedulerReportsNever();
     unboundDevicesDispatchAsNoOps();
     runningBackwardsIsANoOp();
+    aDeadlineAtNowDispatchesNothing();
+    scheduleInSaturatesAtNever();
     identicalSchedulesProduceIdenticalTraces();
 #ifdef NDEBUG
     aPastScheduleAdvancesRatherThanHanging();
