@@ -71,12 +71,18 @@ jobs:
           # The commit-message scan needs history, not just the tip.
           fetch-depth: 0
 
-      - name: Scan tracked files and commit messages
+      # First, so a scan that has regressed to failing open — erroring and reporting
+      # "clean" — fails the job rather than passing it. Needs no secret.
+      - name: Self-test the boundary scan
+        run: ./.github/scripts/check-public-boundary-selftest.sh
+
+      - name: Scan tracked file names, contents and commit messages
         env:
-          # Unset is a valid state: the static patterns still run and the job says
-          # plainly that tracker keys are going unchecked. See the script's header for
-          # why this cannot simply be written into the file.
-          PRIVATE_ID_PATTERN: ${{ vars.PRIVATE_ID_PATTERN }}
+          # A secret, never a repository variable: the log prints a step's env block in
+          # clear text, and only a secret is masked there. Unset is a valid state: the
+          # static patterns still run and the job warns that tracker keys go unchecked.
+          # See the script's header for why this cannot simply be written into the file.
+          PRIVATE_ID_PATTERN: ${{ secrets.PRIVATE_ID_PATTERN }}
         run: ./.github/scripts/check-public-boundary.sh
 
   build:
