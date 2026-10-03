@@ -37,8 +37,11 @@ if [ -n "${PRIVATE_ID_PATTERN:-}" ]; then
   PATTERNS+=("$PRIVATE_ID_PATTERN")
   echo "── Private identifier pattern: supplied"
 else
+  # An annotation, not just a log line: a green job's log is never read, so the gap has
+  # to show on the run summary or it is not being stated at all.
+  echo "::warning::PRIVATE_ID_PATTERN is not set — tracker keys are NOT being checked." \
+       "Set the repository variable to enable it."
   echo "── Private identifier pattern: not set — tracker keys are NOT being checked"
-  echo "   set the PRIVATE_ID_PATTERN repository variable to enable it"
 fi
 
 JOINED=$(IFS='|'; echo "${PATTERNS[*]}")
