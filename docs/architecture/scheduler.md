@@ -45,8 +45,8 @@ flowchart LR
     driver -- "bind · scheduleAt · scheduleIn · cancel" --> sched
     driver -- "runUntil(deadline)" --> sched
     sched -- "now() · dueAt · pending · nextDue" --> driver
-    now -. "measured in" .-> cycle
-    due -. "measured in" .-> cycle
+    now -- "measured in" --> cycle
+    due -- "measured in" --> cycle
     sched -- "Handler(context, now)" --> devices
     devices -- "scheduleAt · scheduleIn · cancel" --> sched
     tables --> alloc
@@ -58,7 +58,7 @@ flowchart LR
     arb -. "owner(cck)" .-> alloc
 
     classDef planned stroke-dasharray: 5 5
-    class devices,arb,geom planned
+    class devices,arb planned
 ```
 
 What the solid part says:
