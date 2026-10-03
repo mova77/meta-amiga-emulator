@@ -82,8 +82,12 @@ public:
     /// current cycle would instead guarantee the hang, by re-dispatching forever.
     void scheduleAt(Device device, Cycle at) noexcept;
 
-    /// Schedule `device`'s next event `delta` colour clocks from now.
-    void scheduleIn(Device device, Cycle delta) noexcept { scheduleAt(device, now_ + delta); }
+    /// Schedule `device`'s next event `delta` colour clocks from now. A delta that would
+    /// carry past `kNever` saturates to it, so the event never fires, as after `cancel`.
+    /// Wrapping instead would land in the past and, in a release build, fire next cycle.
+    void scheduleIn(Device device, Cycle delta) noexcept {
+        scheduleAt(device, delta > kNever - now_ ? kNever : now_ + delta);
+    }
 
     /// Withdraw a device's pending event, if any.
     void cancel(Device device) noexcept;
@@ -109,8 +113,10 @@ public:
     /// cycle* is dispatched before the timeline advances, which models same-cycle
     /// chaining but will not terminate if a handler does it unconditionally.
     ///
-    /// On return, `now()` is exactly `deadline`. Calling with a deadline in the past is a
-    /// no-op.
+    /// On return, `now()` is exactly `deadline`. A deadline at or before `now()` is a no-op
+    /// (SPIKE-S0 §2.3): nothing is dispatched, not even an event due exactly at `now()`.
+    /// Such an event is not lost; it runs first on the next call with a later deadline,
+    /// and its handler still observes its own cycle.
     void runUntil(Cycle deadline) noexcept;
 
 private:
