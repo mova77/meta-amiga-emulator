@@ -22,8 +22,9 @@ machine, and the reason most emulators are good at one and merely adequate at th
 > architectures, under warnings-as-errors, ASan/UBSan and TSan.
 >
 > Start with [docs/specification.md](docs/specification.md) for what is being built,
-> [docs/adr/](docs/adr/) for why it is built that way, and [docs/spikes/](docs/spikes/) for
-> how the hard parts work.
+> [docs/adr/](docs/adr/) for why it is built that way, [docs/spikes/](docs/spikes/) for
+> how the hard parts work, and [docs/architecture/](docs/architecture/) for diagrams of
+> what has been built so far.
 
 The platform badges above state what CI actually builds and tests on every push, not an
 aspiration. The single CI badge is the live one — GitHub publishes workflow status, not
