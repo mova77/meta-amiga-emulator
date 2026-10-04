@@ -3,7 +3,7 @@
 | | |
 |---|---|
 | **Describes** | `main` from the scheduler merge onward |
-| **Derived from** | `src/core/include/meta_amiga/core/scheduler.hpp`, `src/core/scheduler.cpp`, `src/core/include/meta_amiga/core/types.hpp`, `src/core/chipset/slot_allocator.cpp`, `tests/unit/scheduler_test.cpp` |
+| **Derived from** | `src/core/include/meta_amiga/core/scheduler.hpp`, `src/core/scheduler.cpp`, `src/core/include/meta_amiga/core/types.hpp`, `src/core/chipset/slot_allocator.cpp`, `src/core/include/meta_amiga/core/chipset/bus_arbiter.hpp`, `src/core/chipset/bus_arbiter.cpp`, `tests/unit/scheduler_test.cpp`, `tests/unit/bus_arbiter_test.cpp` |
 | **Design** | [SPIKE-S0](../spikes/SPIKE-S0-core-timeline.md) §2–§4 · [ADR-CORE-01](../adr/ADR-CORE-01-cycle-accurate-timing-model.md) D1, D2, D6 |
 
 SPIKE-S0 is the design, written before the code. This page draws what the code on `main`
@@ -40,7 +40,10 @@ flowchart LR
     end
 
     geom["BeamGeometry · timing.hpp<br/>ccksInLine · linesInFrame"]
-    arb["Bus arbitration<br/>request_bus · SPIKE-S0 §4"]
+    subgraph bus["Bus arbitration · chipset/bus_arbiter.hpp / .cpp"]
+        iface["BusArbiter · interface<br/>requestBus · nextSlot · withdraw"]
+        arb["ChipBusArbiter<br/>waiting_[14] · grantedTo_ · blitterRun_<br/>beginLine(start, LineContext) · setBlitterPriority"]
+    end
 
     driver -- "bind · scheduleAt · scheduleIn · cancel" --> sched
     driver -- "runUntil(deadline)" --> sched
@@ -51,14 +54,16 @@ flowchart LR
     devices -- "scheduleAt · scheduleIn · cancel" --> sched
     tables --> alloc
 
-    devices -. "Beam: beginLine at each line boundary" .-> alloc
-    geom -. "LineContext.clocks" .-> alloc
+    arb -- "implements" --> iface
+    arb -- "beginLine · owner(cck)" --> alloc
+
+    devices -. "Beam: arbiter beginLine at each line boundary" .-> arb
+    geom -. "LineContext.clocks" .-> arb
     devices -. "register writes: write* · set*Active" .-> alloc
-    devices -. "every bus cycle" .-> arb
-    arb -. "owner(cck)" .-> alloc
+    devices -. "every bus cycle: requestBus · nextSlot" .-> iface
 
     classDef planned stroke-dasharray: 5 5
-    class devices,arb planned
+    class devices planned
 ```
 
 What the solid part says:
@@ -76,12 +81,12 @@ What the solid part says:
 
 What the dashed part says:
 
-- **The allocator is not wired to the scheduler.** It builds and is tested on its own,
-  and `beginLine` is called only by its tests. The intended caller is the `Beam` device's
-  handler at each line boundary (the `Beam` enumerator's own comment says so), fed the
-  line length by `BeamGeometry::ccksInLine`.
-- **Nothing consumes `owner(cck)` yet.** The bus arbitration protocol of SPIKE-S0 §4,
-  through which every participant asks for a slot (ADR-CORE-01 D2), has no code.
+- **No device drives the arbiter yet.** `ChipBusArbiter::beginLine` rebuilds the slot
+  table and is called only by test doubles of the `Beam` device; the intended caller is
+  the `Beam` handler at each line boundary, fed the line length by
+  `BeamGeometry::ccksInLine`. Likewise only test doubles of the CPU, Blitter and Copper
+  call `requestBus`. The arbiter itself is solid: it is the consumer of `owner(cck)`, and
+  §5 draws it.
 
 ---
 
@@ -199,8 +204,8 @@ The diagrams follow the code in each case.
 2. **Slot table shape.** SPIKE-S0 §3.1 sketches `slot_owner[0..226]` holding a `Device` or
    `FREE`. The code's table has 228 entries, for the NTSC long line, and holds a
    `SlotOwner`: a separate enumeration with one owner per sprite and per bitplane and no
-   Beam, Copper, Blitter, CIA or CPU entries. No mapping between `SlotOwner` and the
-   scheduler's `Device` exists yet; arbitration will need one.
+   Beam, Copper, Blitter, CIA or CPU entries. `deviceFor` in `bus_arbiter.hpp` maps each
+   owner to the scheduler's `Device`, collapsing the eight sprites and six planes.
 3. **What gates a fixed slot.** The §3.1 `rebuild` sketch places refresh, disk and audio
    unconditionally and gates sprites on `SPREN` and one vertical window. The code places
    only refresh when DMA master is off, needs both the enable and the device's active
@@ -210,3 +215,87 @@ The diagrams follow the code in each case.
    comment say a handler observes the cycle it was scheduled for. That holds for the cycle
    *stored*; after a release-build past schedule the stored cycle is `now + 1`, not the
    one requested.
+5. **Who contends a FREE slot.** SPIKE-S0 §4 grants a FREE slot when "no higher-priority
+   device is contending" it without saying what contending is. The code reads it as: a
+   device that has already been granted this clock, or one holding a refused request on
+   a clock it may fetch on. A refused request stands until it is granted or withdrawn,
+   which is what lets a waiting CPU be seen by the Blitter that dispatches before it.
+6. **Which slots the CPU may use.** §4 says the CPU "retries on the next slot". The code
+   makes that the next *even* clock (`tables::kCpuOwnsParity`, the 68000's half of the bus
+   in the manual's Figure 6-10), as it already is for the Copper. Without it the CPU could
+   take the odd clocks the fixed slots leave free, and the manual's arithmetic, six lores
+   planes halving the CPU's share of the fetch window, would not follow from the table.
+7. **The CPU's bus cycle at a line's end.** Parity is of the clock within the line, and a
+   PAL line has an odd number of clocks, so a CPU cycle started on the last clock ($E2) runs
+   into the next line's $00 and the CPU's next slot is $02. The code models this; nothing
+   in the documents states it, and it is unmeasured.
+8. **BLTPRI clear.** The bounded run after which the Blitter yields is not stated anywhere
+   the project may draw on. The code uses `kBlitterYieldRunUnmeasured`, a placeholder that
+   says so, and §5 test 19 is a skipped test rather than an assertion of the placeholder.
+
+---
+
+## 5. Bus arbitration
+
+`requestBus(device, cycle)` as `ChipBusArbiter` implements it. Priority is `Device` order;
+the arbiter adds no ordering of its own.
+
+```mermaid
+flowchart TD
+    req["requestBus(device, cycle)"] --> newclk{"cycle ≠ last cycle?"}
+    newclk -- yes --> reset["grantedTo_ ← none · blitterYielded_ ← false"]
+    newclk -- no --> elig
+    reset --> elig{"eligible on cck?<br/>CPU, Copper: even only"}
+    elig -- no --> refuse
+    elig -- yes --> own{"owner(cck)"}
+    own -- "owned by device" --> grant
+    own -- "owned by another" --> refuse
+    own -- FREE --> hp{"granted already, or a higher Device<br/>waiting and eligible on cck?"}
+    hp -- yes --> refuse
+    hp -- no --> yield{"Blitter, BLTPRI clear, CPU waiting,<br/>blitterRun_ ≥ kBlitterYieldRunUnmeasured?"}
+    yield -- yes --> refuse
+    yield -- no --> grant
+    grant["grant: waiting_[device] ← false · grantedTo_ ← device<br/>Blitter beating a waiting CPU: blitterRun_++ · CPU: blitterRun_ ← 0"]
+    refuse["refuse: waiting_[device] ← true<br/>the device retries at nextSlot(device, cycle)"]
+```
+
+A CPU stall, as `aRefusedCpuStallsOnTheTimeline` and `bltpriPutsTheBlitterAheadOfTheCpu`
+drive it: the stall is time passing on the scheduler, not a count the CPU keeps.
+
+```mermaid
+sequenceDiagram
+    autonumber
+    participant S as Scheduler
+    participant BL as Blitter double · ordinal 10
+    participant CP as CPU double · ordinal 13
+    participant A as ChipBusArbiter
+    participant T as SlotAllocator
+
+    Note over S,T: BLTPRI set, no display DMA, both due at $40
+    S->>BL: handler($40)
+    BL->>A: requestBus(Blitter, $40)
+    A->>T: owner($40) → FREE
+    A-->>BL: granted
+    BL->>S: scheduleAt(Blitter, nextSlot = $41)
+    S->>CP: handler($40)
+    CP->>A: requestBus(Cpu, $40)
+    A-->>CP: refused · granted already · CPU now waiting
+    CP->>S: scheduleAt(Cpu, nextSlot = $42)
+    Note over S,A: $41 Blitter granted, then at each even clock to $66 Blitter granted and CPU refused, Blitter alone to $67
+    S->>CP: handler($68)
+    CP->>A: requestBus(Cpu, $68)
+    A->>T: owner($68) → FREE
+    A-->>CP: granted · Blitter finished, no higher Device waiting
+```
+
+| Rule | Test |
+|---|---|
+| Owned slots go to their owner and no one else; refused requests stand | `ownedSlotsGoToTheirOwnerOnly` |
+| A FREE slot goes to the highest contender; a standing request contends only clocks its device may use | `aFreeSlotGoesToTheHighestPriorityContender` |
+| §5 test 17: a refused CPU retries on its next slot, and the stall is elapsed clocks | `aRefusedCpuStallsOnTheTimeline` |
+| §5 test 18: BLTPRI set, the Blitter precedes the CPU | `bltpriPutsTheBlitterAheadOfTheCpu` |
+| §5 test 19: BLTPRI clear, the yield bound | skipped: `bus_arbiter_unmeasured_test` |
+| §5 test 20: a Copper WAIT releases at the compared position; the Copper takes only free even slots | `copperWaitReleasesAtTheComparedPosition`, `copperTakesOnlyFreeEvenSlots` |
+| ADR-CORE-01 D5: the same CPU work takes 80, 158 and 402 clocks under no planes, six lores and four hires planes, as the table predicts | `cpuTimingEmergesFromTheDisplayMode` |
+| SPIKE-S0 §4.1: a second `BusArbiter` runs the same CPU double with no `SlotAllocator` | `anAsynchronousArbiterNeedsNoAllocator` |
+| ADR-CORE-01 D6: the same requests give the same grants | `identicalRequestsProduceIdenticalGrants` |
