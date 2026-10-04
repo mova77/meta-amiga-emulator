@@ -13,6 +13,7 @@
 
 #include "meta_amiga/core/chipset/bus_arbiter.hpp"
 
+#include <algorithm>
 #include <array>
 #include <cstddef>
 
@@ -57,15 +58,9 @@ struct Log {
         }
     }
     bool operator==(const Log& other) const noexcept {
-        if (count != other.count) {
-            return false;
-        }
-        for (std::size_t i = 0; i < count; ++i) {
-            if (!(entries[i] == other.entries[i])) {
-                return false;
-            }
-        }
-        return true;
+        return count == other.count &&
+               std::equal(entries.begin(), entries.begin() + static_cast<std::ptrdiff_t>(count),
+                          other.entries.begin());
     }
 };
 
@@ -192,9 +187,11 @@ struct CopperDouble {
     }
 };
 
-// The slot table's own prediction, independent of the arbiter: walk the table for the
-// colour clock of the `accesses`-th CPU-parity FREE slot from `start`, assuming every line
-// has the table of the current one. Returns elapsed clocks to the end of that bus cycle.
+// The slot table's own prediction, independent of the arbiter but NOT of the CPU double:
+// walk the table for the colour clock of the `accesses`-th CPU-parity FREE slot from
+// `start`, assuming every line has the table of the current one and, like the double, that
+// the CPU cannot ask again until one bus cycle (two clocks) after a grant. Returns elapsed
+// clocks to the end of that bus cycle.
 Cycle predictedCpuElapsed(const SlotAllocator& slots, int start, int accesses) {
     int found = 0;
     for (Cycle t = 0;; ++t) {
@@ -203,7 +200,7 @@ Cycle predictedCpuElapsed(const SlotAllocator& slots, int start, int accesses) {
             if (++found == accesses) {
                 return t + 2;
             }
-            t += 1;  // the bus cycle occupies the following odd clock too
+            t += 1;  // the CPU's own cadence: next request two clocks after a grant
         }
     }
 }
@@ -300,7 +297,40 @@ void bltpriClearDoesNotLockTheCpuOut() {
     CHECK(cpu.firstGrant < blitter.done - 1);
 }
 
+// The shape of the BLTPRI-clear path, still without asserting the bound: through a long
+// blit the CPU gets in repeatedly, and every wait (request to grant) equals the first,
+// whatever the bound is. A run that did not restart after each CPU grant would let later
+// requests in sooner than the first.
+void bltpriClearYieldsRepeatedlyAtASteadyInterval() {
+    Machine m;
+    BlitterDouble blitter{&m.scheduler, &m.arbiter, &m.log};
+    CpuDouble cpu{&m.scheduler, &m.arbiter, &m.log};
+    blitter.start(0x40, 80);
+    cpu.start(0x40, 6);
+    m.scheduler.runUntil(kLine - 1);
+
+    std::array<Cycle, 6> grants{};
+    std::size_t n = 0;
+    for (std::size_t i = 0; i < m.log.count && n < grants.size(); ++i) {
+        const auto& e = m.log.entries[i];
+        if (e.device == Device::Cpu && e.granted) {
+            grants[n++] = e.at;
+        }
+    }
+    CHECK_EQ(n, grants.size());
+    CHECK(blitter.done != 0);
+    CHECK(grants[n - 1] < blitter.done);  // every CPU grant came during the blit
+    const Cycle firstWait = grants[0] - 0x40;
+    CHECK(firstWait > 0);
+    for (std::size_t i = 1; i < n; ++i) {
+        CHECK_EQ(grants[i] - (grants[i - 1] + 2), firstWait);  // asked two clocks after
+    }
+}
+
 // --- SPIKE-S0 test 20 ---------------------------------------------------------------------
+
+// The arbiter's half of test 20: once the compared position is reached, the first free even
+// clock at or after it is granted — the position itself when that clock is even and free.
 
 void copperWaitReleasesAtTheComparedPosition() {
     {
@@ -379,7 +409,6 @@ Cycle cpuElapsed(Resolution resolution, int planes, Cycle* predicted) {
 
 void cpuTimingEmergesFromTheDisplayMode() {
     Cycle predicted = 0;
-
     // No planes: every even clock is free. 40 cycles = 80 clocks.
     CHECK_EQ(cpuElapsed(Resolution::Lores, 0, &predicted), Cycle{80});
     CHECK_EQ(predicted, Cycle{80});
@@ -391,9 +420,12 @@ void cpuTimingEmergesFromTheDisplayMode() {
     CHECK_EQ(predicted, Cycle{158});
 
     // Four hires planes: $3C..$DB is all fetch. The CPU gets $38 and $3A, then $DC..$E2
-    // (4). The cycle at $E2, the line's last clock, runs into the next line's $00, so that
-    // line gives $02..$3A (29), then $DC..$E2 (4) again: 39. The 40th is at $02 of the line
-    // after, ending at $04: 2 * 227 + $04 - $38 = 402 clocks.
+    // (4). After the grant at $E2, the line's last clock, the double asks again two clocks
+    // later, at the next line's odd $01, and gets $02, so that line gives $02..$3A (29),
+    // then $DC..$E2 (4) again: 39. The 40th is at $02 of the line after, ending at $04:
+    // 2 * 227 + $04 - $38 = 402 clocks. The line-end step is the double's cadence, not the
+    // arbiter's (docs/architecture/scheduler.md section 4 item 7), and rests on the
+    // unverified 227-clock PAL line.
     CHECK_EQ(cpuElapsed(Resolution::Hires, 4, &predicted), Cycle{402});
     CHECK_EQ(predicted, Cycle{402});
 }
@@ -457,6 +489,7 @@ int main() {
     aRefusedCpuStallsOnTheTimeline();
     bltpriPutsTheBlitterAheadOfTheCpu();
     bltpriClearDoesNotLockTheCpuOut();
+    bltpriClearYieldsRepeatedlyAtASteadyInterval();
     copperWaitReleasesAtTheComparedPosition();
     copperTakesOnlyFreeEvenSlots();
     cpuTimingEmergesFromTheDisplayMode();
