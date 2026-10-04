@@ -9,9 +9,10 @@
 # what the core may depend on means editing `check_core_boundary_policy.py` beside it,
 # which makes it a reviewable policy change rather than an include nobody notices.
 #
-# Subsystems land into this structure; chipset/ holds the DMA slot allocator, whose
-# tables are generated from docs/reference/dma-slot-allocation.yaml by
-# scripts/gen_slot_tables.py and checked in, so the build itself needs no Python.
+# Subsystems land into this structure; chipset/ holds the DMA slot allocator and the bus
+# arbiter that consumes its table. The allocator's tables are generated from
+# docs/reference/dma-slot-allocation.yaml by scripts/gen_slot_tables.py and checked in,
+# so the build itself needs no Python.
 
 configure_file(
     "${CMAKE_CURRENT_SOURCE_DIR}/include/meta_amiga/core/version.hpp.in"
@@ -21,7 +22,8 @@ configure_file(
 add_library(meta-amiga-core STATIC
     scheduler.cpp
     version.cpp
-    chipset/slot_allocator.cpp)
+    chipset/slot_allocator.cpp
+    chipset/bus_arbiter.cpp)
 
 add_library(meta-amiga::core ALIAS meta-amiga-core)
 

@@ -16,6 +16,9 @@ meta_amiga_add_test(version_test)
 meta_amiga_add_test(slot_allocator_test)
 meta_amiga_add_test(slot_allocator_unsourced_test)
 set_tests_properties(slot_allocator_unsourced_test PROPERTIES SKIP_RETURN_CODE 77)
+meta_amiga_add_test(bus_arbiter_test)
+meta_amiga_add_test(bus_arbiter_unmeasured_test)
+set_tests_properties(bus_arbiter_unmeasured_test PROPERTIES SKIP_RETURN_CODE 77)
 
 # The generated slot tables must match the YAML they come from. Skipped, not failed,
 # where PyYAML is absent; the headers are checked in, so the build never needs it.
