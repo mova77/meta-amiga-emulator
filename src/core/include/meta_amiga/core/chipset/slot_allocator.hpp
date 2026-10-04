@@ -112,7 +112,7 @@ public:
     void beginLine(const LineContext& line);
 
     // Owner of colour clock `cck` in the current line; FREE past the line's end.
-    SlotOwner owner(int cck) const;
+    SlotOwner owner(int cck) const noexcept;
 
     const Table& table() const { return table_; }
     bool dirty() const { return dirty_; }

@@ -58,7 +58,7 @@ void SlotAllocator::beginLine(const LineContext& line) {
     }
 }
 
-SlotOwner SlotAllocator::owner(int cck) const {
+SlotOwner SlotAllocator::owner(int cck) const noexcept {
     if (cck < 0 || cck >= line_.clocks) {
         return SlotOwner::Free;
     }

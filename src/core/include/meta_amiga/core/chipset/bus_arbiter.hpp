@@ -19,11 +19,16 @@
 namespace meta::amiga::core::chipset {
 
 // The Blitter's run length, with BLTPRI clear, before it yields a contended free slot to a
-// waiting CPU. UNMEASURED: SPIKE-S0 section 4 says the Blitter "yields after a bounded run"
-// and states no bound, and no document in this repository gives one. This value is a
-// placeholder so the BLTPRI-clear path exists and is exercised; it is not a claim about the
-// hardware, and SPIKE-S0 test 19 stays skipped until a measurement replaces it.
-inline constexpr int kBlitterYieldRunUnmeasured = 3;
+// waiting CPU. UNMEASURED AND UNSOURCED: SPIKE-S0 section 4 says the Blitter "yields after a
+// bounded run" and states no bound, and none of the sources the project holds (the manual
+// extracts S1-S4 in docs/reference/dma-slot-allocation.yaml) gives one. The manual may
+// describe it in a part not yet transcribed; that is a lookup for whoever holds it, and
+// test 19 waits on it or on a measurement.
+//
+// 1 is chosen for a property of the code, not of the hardware: it is the smallest run that
+// makes the yield path observable, so it cannot be mistaken for a borrowed figure. It is not
+// a claim about the machine, and nothing asserts it.
+inline constexpr int kBlitterYieldRunUnmeasured = 1;
 
 // The seam SPIKE-S0 section 4.1 asks for. A CPU running off the chipset timeline (a
 // 68030/040/060 with fast RAM) is a different implementation of this interface, not a
@@ -63,7 +68,9 @@ protected:
 //
 //   - An owned slot is granted to its owner and refused to everyone else.
 //   - A FREE slot is granted unless a higher-priority device is contending it: holding a
-//     standing request it is eligible for on this clock, or already granted it.
+//     standing request it is eligible for on this clock, or already granted it. A request
+//     on a clock its device may not use is refused and stands too, so a Copper that asks on
+//     an odd clock contends the next even one.
 //   - The CPU and the Copper are eligible only on even clocks (the 68000's half of the bus,
 //     slot_tables.hpp `kCpuOwnsParity`; the Copper's "free even slots", SPIKE-S0 section 4).
 //     The Blitter is eligible on every clock.
@@ -84,7 +91,8 @@ public:
     // and makes it the line requests are resolved against.
     void beginLine(Cycle start, const LineContext& line);
 
-    // BLTPRI, DMACON bit 10 — by meaning, as DmaEnables does.
+    // DMACON's BLTPRI ("blitter-nasty"), by meaning rather than bit position, as DmaEnables
+    // does.
     void setBlitterPriority(bool nasty) noexcept { blitterPriority_ = nasty; }
 
     [[nodiscard]] bool requestBus(Device device, Cycle cycle) noexcept override;

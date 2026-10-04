@@ -225,13 +225,29 @@ The diagrams follow the code in each case.
    in the manual's Figure 6-10), as it already is for the Copper. Without it the CPU could
    take the odd clocks the fixed slots leave free, and the manual's arithmetic, six lores
    planes halving the CPU's share of the fetch window, would not follow from the table.
-7. **The CPU's bus cycle at a line's end.** Parity is of the clock within the line, and a
-   PAL line has an odd number of clocks, so a CPU cycle started on the last clock ($E2) runs
-   into the next line's $00 and the CPU's next slot is $02. The code models this; nothing
-   in the documents states it, and it is unmeasured.
+   Specification §3's prose says the CPU also "takes odd slots nothing claimed"; the code
+   follows the transcribed `cpu_owns_parity: even` instead, and the two need reconciling.
+   Parity is taken per line, from the clock within the line; whether the hardware's is per
+   line or absolute is not documented, and with an odd line length that is item 7.
+7. **The CPU's bus cycle at a line's end.** The arbiter allocates single clocks and does
+   not model a bus cycle's length: `nextSlot(Cpu, …)` after the last clock of a line ($E2)
+   is the next line's $00. What the tests show at a line's end comes from the CPU *test
+   double*, which asks again two clocks after a grant (one bus cycle), lands on the next
+   line's odd $01, is refused, and gets $02. That cadence is a property of the CPU, which
+   performs its own bus cycles (ADR-CPU-02 D4), and belongs in the CPU model when one
+   exists; the arbiter does not reserve $00 for it, and nothing documents that it should.
+   `predictedCpuElapsed` in the tests shares the double's cadence assumption, so the hires
+   figure of 402 clocks checks the arbiter against the slot table under that assumption,
+   not the assumption itself. Both rest on a 227-clock PAL line, which
+   `dma-slot-allocation.yaml` leaves unverified (`colour_clocks_pal: null`), although
+   `timing.hpp` relies on it. Unmeasured throughout.
 8. **BLTPRI clear.** The bounded run after which the Blitter yields is not stated anywhere
-   the project may draw on. The code uses `kBlitterYieldRunUnmeasured`, a placeholder that
-   says so, and §5 test 19 is a skipped test rather than an assertion of the placeholder.
+   the project may draw on. The code uses `kBlitterYieldRunUnmeasured`, a placeholder of 1
+   that says so, chosen as the smallest run that exercises the path so that it cannot read
+   as a borrowed figure. §5 test 19 is a skipped test rather than an assertion of it. What
+   *is* asserted is the shape: through a long blit the CPU gets in repeatedly, and because
+   the run restarts after each CPU grant, every later wait equals the first
+   (`bltpriClearYieldsRepeatedlyAtASteadyInterval`).
 
 ---
 
@@ -295,7 +311,8 @@ sequenceDiagram
 | §5 test 17: a refused CPU retries on its next slot, and the stall is elapsed clocks | `aRefusedCpuStallsOnTheTimeline` |
 | §5 test 18: BLTPRI set, the Blitter precedes the CPU | `bltpriPutsTheBlitterAheadOfTheCpu` |
 | §5 test 19: BLTPRI clear, the yield bound | skipped: `bus_arbiter_unmeasured_test` |
-| §5 test 20: a Copper WAIT releases at the compared position; the Copper takes only free even slots | `copperWaitReleasesAtTheComparedPosition`, `copperTakesOnlyFreeEvenSlots` |
-| ADR-CORE-01 D5: the same CPU work takes 80, 158 and 402 clocks under no planes, six lores and four hires planes, as the table predicts | `cpuTimingEmergesFromTheDisplayMode` |
+| BLTPRI clear, bound not asserted: repeated yields, every CPU wait equal to the first because the run restarts after each CPU grant | `bltpriClearYieldsRepeatedlyAtASteadyInterval` |
+| §5 test 20, the arbiter's half: once a WAIT's compared position is reached, the Copper is granted the first free even clock at or after it; the Copper takes only free even slots | `copperWaitReleasesAtTheComparedPosition`, `copperTakesOnlyFreeEvenSlots` |
+| ADR-CORE-01 D5: the same CPU work takes 80, 158 and 402 clocks under no planes, six lores and four hires planes, as the table predicts given the CPU double's two-clock cadence (item 7) | `cpuTimingEmergesFromTheDisplayMode` |
 | SPIKE-S0 §4.1: a second `BusArbiter` runs the same CPU double with no `SlotAllocator` | `anAsynchronousArbiterNeedsNoAllocator` |
 | ADR-CORE-01 D6: the same requests give the same grants | `identicalRequestsProduceIdenticalGrants` |
