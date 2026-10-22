@@ -12,7 +12,7 @@ Numbers are allocated once and never reused.
 | [ADR-CPU-02](ADR-CPU-02-68k-core-strategy.md) | 68k core: a generated interpreter as permanent oracle, JIT deferred | Accepted |
 | [ADR-ROM-03](ADR-ROM-03-kickstart-rom-handling.md) | Kickstart ROMs: identify by hash, decrypt Amiga Forever, ship AROS, bundle nothing | Accepted |
 | [ADR-PORT-04](ADR-PORT-04-portability-and-backends.md) | A freestanding core behind explicit ports; SDL3 as the reference backend | Accepted |
-| [ADR-TEST-05](ADR-TEST-05-compatibility-measurement.md) | Compatibility is a measured number, not a claim | Accepted |
+| [ADR-TEST-05](ADR-TEST-05-compatibility-measurement.md) | Compatibility is a measured number, not a claim | Accepted; D7–D11 and the quarantine terms of D5 Proposed |
 | [ADR-PERF-06](ADR-PERF-06-optimisation-policy.md) | Optimisation policy: C++23 by default, SIMD by measurement, assembly by exception | Accepted |
 | [ADR-ACCEL-07](ADR-ACCEL-07-cpu-and-chipset-acceleration.md) | Acceleration strategy: event-bounded batching first, translation last | Accepted |
 
