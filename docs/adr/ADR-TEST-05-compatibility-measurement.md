@@ -2,8 +2,8 @@
 
 | | |
 |---|---|
-| **Status** | Accepted: D1–D4, D6, and D5 except its quarantine terms. Proposed: D7–D11, and the quarantine terms of D5 |
-| **Date** | 2026-07-27; D7–D11 proposed 2026-10-22 |
+| **Status** | Accepted |
+| **Date** | 2026-07-27; D7–D11 and the quarantine terms of D5 accepted 2026-10-23 |
 | **Deciders** | Product Owner |
 | **Scope** | Verification method, corpus governance, CI gating |
 | **Depends on** | [ADR-CORE-01](ADR-CORE-01-cycle-accurate-timing-model.md) · [ADR-PORT-04](ADR-PORT-04-portability-and-backends.md) |
@@ -194,3 +194,7 @@ flowchart LR
 ## Open decisions
 
 None at present.
+
+## Follow-up checks
+
+- D9's rule that a channel the hardware silences presents volume 0 is a modelling choice. Verify it against the Hardware Reference Manual's description of Paula's channel and DMA behaviour when the audio implementation lands, and amend D9 if the hardware says otherwise.
