@@ -25,9 +25,16 @@ namespace meta::amiga::core::chipset {
 // describe it in a part not yet transcribed; that is a lookup for whoever holds it, and
 // test 19 waits on it or on a measurement.
 //
+// The unit is contended slots won: a slot the Blitter takes on an even colour clock while a
+// CPU request stands. Not colour clocks elapsed, and not the Blitter's wins on odd clocks,
+// where the CPU may not ask and which do not count. Whether the hardware's counter counts
+// every Blitter win or only the CPU slots it denies belongs with the measurement.
+//
 // 1 is chosen for a property of the code, not of the hardware: it is the smallest run that
 // makes the yield path observable, so it cannot be mistaken for a borrowed figure. It is not
-// a claim about the machine, and nothing asserts it.
+// a claim about the machine, and nothing asserts it: the tests size their blits from this
+// constant and assert how the run behaves, so they hold at any value whose blit still fits
+// one scanline; past that, a precondition in the test says so.
 inline constexpr int kBlitterYieldRunUnmeasured = 1;
 
 // The seam SPIKE-S0 section 4.1 asks for. A CPU running off the chipset timeline (a

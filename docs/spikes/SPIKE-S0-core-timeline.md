@@ -276,7 +276,7 @@ procedure request_bus(device, cycle) -> granted : bool
 
 - **CPU.** Requests a slot; if refused, stalls and retries on the next slot. Instruction
   timing therefore *emerges* from display mode rather than being looked up (ADR-CPU-02
-  D4). A seven-bitplane hires display starving the CPU is not a special case in the code —
+  D4). A four-bitplane hires display starving the CPU is not a special case in the code —
   it is what the table says.
 - **Blitter.** Takes FREE slots. With `BLTPRI` set it takes them ahead of the CPU; without
   it, it yields after a bounded run so the CPU is not locked out.
