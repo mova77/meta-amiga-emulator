@@ -297,19 +297,33 @@ void bltpriClearDoesNotLockTheCpuOut() {
     CHECK(cpu.firstGrant < blitter.done - 1);
 }
 
-// The shape of the BLTPRI-clear path, still without asserting the bound: through a long
-// blit the CPU gets in repeatedly, and every wait (request to grant) equals the first,
-// whatever the bound is. A run that did not restart after each CPU grant would let later
-// requests in sooner than the first.
+// The shape of the BLTPRI-clear path, without asserting the bound's value: the blit is sized
+// from `kBlitterYieldRunUnmeasured`, so it is always long enough for the CPU to get in six
+// times at any bound, and it is always longer than the bound itself. Through it the Blitter
+// yields after exactly that many contended slots won (the unit is in bus_arbiter.hpp), and
+// every later wait (request to grant) equals the first. A run that did not restart after
+// each CPU grant would let later requests in sooner than the first.
 void bltpriClearYieldsRepeatedlyAtASteadyInterval() {
+    constexpr int kBound = chipset::kBlitterYieldRunUnmeasured;
+    constexpr int kGrants = 6;
+    // One CPU service takes 2 * kBound + 4 clocks from request to the next; the Blitter has
+    // all but the CPU's clocks. The extra services keep the blit running past the last grant.
+    constexpr int kWords = (kGrants + 2) * (2 * kBound + 3);
+    constexpr Cycle kStart = 0x40;
+
     Machine m;
     BlitterDouble blitter{&m.scheduler, &m.arbiter, &m.log};
     CpuDouble cpu{&m.scheduler, &m.arbiter, &m.log};
-    blitter.start(0x40, 80);
-    cpu.start(0x40, 6);
+    blitter.start(kStart, kWords);
+    cpu.start(kStart, kGrants);
+    // The whole blit has to fit one line: the CPU double's cadence at a line's end is its
+    // own (docs/architecture/scheduler.md section 4 item 7), not the property here. A bound
+    // too large for that fails this check rather than one of the properties below.
+    CHECK(kWords > kBound);
+    CHECK(kStart + kWords + kGrants < kLine - 1);
     m.scheduler.runUntil(kLine - 1);
 
-    std::array<Cycle, 6> grants{};
+    std::array<Cycle, kGrants> grants{};
     std::size_t n = 0;
     for (std::size_t i = 0; i < m.log.count && n < grants.size(); ++i) {
         const auto& e = m.log.entries[i];
@@ -320,11 +334,65 @@ void bltpriClearYieldsRepeatedlyAtASteadyInterval() {
     CHECK_EQ(n, grants.size());
     CHECK(blitter.done != 0);
     CHECK(grants[n - 1] < blitter.done);  // every CPU grant came during the blit
-    const Cycle firstWait = grants[0] - 0x40;
-    CHECK(firstWait > 0);
+    const Cycle firstWait = grants[0] - kStart;
+    // The Blitter wins the clock the CPU first asks on (no request stands yet), then one odd
+    // clock, then kBound contended even slots each followed by an odd one, and yields the
+    // next even slot: the CPU is in 2 * kBound + 2 clocks after it first asked.
+    CHECK_EQ(firstWait, static_cast<Cycle>(2 * kBound + 2));
     for (std::size_t i = 1; i < n; ++i) {
         CHECK_EQ(grants[i] - (grants[i - 1] + 2), firstWait);  // asked two clocks after
     }
+}
+
+// The CPU stops wanting the bus while the Blitter holds a run towards its yield. Withdrawing
+// has to forget that run, as a CPU grant does: the CPU that asks again is a new waiter and
+// gets in after the same wait as the first, not at its next chance. The control is the same
+// run without the withdrawal, where the very next contended slot is yielded.
+int contendedSlotsTheBlitterWinsAfterARunOfTheBound(bool cpuWithdraws) {
+    constexpr int kBound = chipset::kBlitterYieldRunUnmeasured;
+    Machine m;
+    m.scheduler.runUntil(1);  // Beam has run line 0; no display, every slot from $40 is FREE
+    ChipBusArbiter& arbiter = m.arbiter;
+    Cycle t = 0x40;
+
+    // The CPU asks and waits. The Blitter, dispatched first, takes the clock before it does.
+    CHECK(arbiter.requestBus(Device::Blitter, t));
+    CHECK(!arbiter.requestBus(Device::Cpu, t));
+    // The Blitter now wins kBound contended slots, with an odd clock between each: odd
+    // clocks are not the CPU's, so they are not part of the run.
+    for (int won = 0; won < kBound; ++won) {
+        CHECK(arbiter.requestBus(Device::Blitter, ++t));  // odd
+        CHECK(arbiter.requestBus(Device::Blitter, ++t));  // even, contended
+        CHECK(!arbiter.requestBus(Device::Cpu, t));
+    }
+
+    if (cpuWithdraws) {
+        arbiter.withdraw(Device::Cpu);
+        CHECK(!arbiter.waiting(Device::Cpu));
+        CHECK(arbiter.requestBus(Device::Blitter, ++t));  // odd
+        CHECK(arbiter.requestBus(Device::Blitter, ++t));  // even: nobody waits, no yield
+        CHECK(!arbiter.requestBus(Device::Cpu, t));       // asks again, from a fresh run
+        CHECK(arbiter.waiting(Device::Cpu));
+    }
+
+    int won = 0;
+    for (;;) {
+        CHECK(arbiter.requestBus(Device::Blitter, ++t));  // odd
+        if (!arbiter.requestBus(Device::Blitter, ++t)) {
+            CHECK(arbiter.requestBus(Device::Cpu, t));  // the yielded slot is the CPU's
+            return won;
+        }
+        CHECK(!arbiter.requestBus(Device::Cpu, t));
+        if (++won > 1000) {
+            return won;  // never yielded; the caller's check fails with the count
+        }
+    }
+}
+
+void withdrawingTheCpuRestartsTheBlittersRun() {
+    constexpr int kBound = chipset::kBlitterYieldRunUnmeasured;
+    CHECK_EQ(contendedSlotsTheBlitterWinsAfterARunOfTheBound(false), 0);
+    CHECK_EQ(contendedSlotsTheBlitterWinsAfterARunOfTheBound(true), kBound);
 }
 
 // --- SPIKE-S0 test 20 ---------------------------------------------------------------------
@@ -490,6 +558,7 @@ int main() {
     bltpriPutsTheBlitterAheadOfTheCpu();
     bltpriClearDoesNotLockTheCpuOut();
     bltpriClearYieldsRepeatedlyAtASteadyInterval();
+    withdrawingTheCpuRestartsTheBlittersRun();
     copperWaitReleasesAtTheComparedPosition();
     copperTakesOnlyFreeEvenSlots();
     cpuTimingEmergesFromTheDisplayMode();

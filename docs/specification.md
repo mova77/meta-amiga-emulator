@@ -97,11 +97,12 @@ clock  $01 $03 $05   $07 $09 $0B   $0D $0F $11 $13   $15 .. $33   $38 ..
 ```
 
 The fixed allocations are all **odd** clocks; the 68000's memory-access cycle is the even
-one. Bitplane DMA claims slots from `DDFSTRT` to `DDFSTOP` in a repeating group — 8 colour
-clocks in lores, 4 in hires — and past four lores bitplanes it starts taking even clocks
-too, which is how a deep display starves the CPU. The Copper takes free even slots; the
-Blitter takes free slots subject to `BLTPRI`; the CPU takes odd slots nothing claimed and
-whatever even slots are left. Programs depend on exactly that starvation.
+one, and the CPU uses no other parity. Bitplane DMA claims slots from `DDFSTRT` to
+`DDFSTOP` in a repeating group — 8 colour clocks in lores, 4 in hires — and past four lores
+bitplanes it starts taking even clocks too, which is how a deep display starves the CPU: a
+four-plane hires display claims every clock of the fetch window and locks it out entirely.
+The Copper takes free even slots; the Blitter takes free slots subject to `BLTPRI`; the CPU
+takes only the even slots nothing else claimed. Programs depend on exactly that starvation.
 
 **The authoritative table is
 [docs/reference/dma-slot-allocation.md](reference/dma-slot-allocation.md)**, transcribed
