@@ -1,0 +1,39 @@
+# SPDX-License-Identifier: GPL-3.0-or-later
+# Copyright (C) 2026 The meta-amiga authors
+#
+# Hand-derived from the 68000 Programmer's Reference Manual, one line per instruction in
+# kernel.s order:   <encoding, hex> | <disassembly the backend should print> | <source>
+#
+# A disassembly of "-" means the backend cannot disassemble the instruction (raw: the
+# source is a .short). "xfail:" prefixes a disassembly the backend is known to get wrong at
+# the pinned tag; the check reports it, and fails if it starts to pass so the marker is
+# removed deliberately when the pin moves.
+7809      | moveq #9, %d4                 | moveq #9, %d4
+303C 00F0 | move.w #240, %d0              | move.w #0x00F0, %d0
+2400      | move.l %d0, %d2               | move.l %d0, %d2
+3200      | move.w %d0, %d1               | move.w %d0, %d1
+D041      | add.w %d1, %d0                | add.w %d1, %d0
+D082      | add.l %d2, %d0                | add.l %d2, %d0
+5283      | -                             | .short 0x5283 (addq.l #1, %d3)
+2F00      | move.l %d0, -(%sp)            | move.l %d0, -(%sp)
+261F      | move.l (%sp)+, %d3            | move.l (%sp)+, %d3
+43E8 0008 | lea (8,%a0), %a1              | lea (8,%a0), %a1
+7A00      | moveq #0, %d5                 | moveq #0, %d5
+DA44      | add.w %d4, %d5                | add.w %d4, %d5
+51CC FFFC | -                             | .short 0x51CC, loop - . (dbra %d4, loop)
+B281      | cmp.l %d1, %d1                | cmp.l %d1, %d1
+6704      | beq $4                        | beq skip
+3E3C DEAD | move.w #57005, %d7            | move.w #0xDEAD, %d7
+6602      | bne $2                        | bne skip2
+7E01      | moveq #1, %d7                 | moveq #1, %d7
+48E7 E080 | xfail: movem.l %d0-%d2/%a0, -(%sp) | movem.l %d0-%d2/%a0, -(%sp)
+7000      | moveq #0, %d0                 | moveq #0, %d0
+7200      | moveq #0, %d1                 | moveq #0, %d1
+7400      | moveq #0, %d2                 | moveq #0, %d2
+2040      | move.l %d0, %a0               | move.l %d0, %a0
+4CDF 0107 | movem.l (%sp)+, %d0-%d2/%a0   | movem.l (%sp)+, %d0-%d2/%a0
+43FA 0006 | lea (6,%pc), %a1              | lea (sub,%pc), %a1
+4E91      | jsr (%a1)                     | jsr (%a1)
+60FE      | bra $fe                       | bra done
+3C3C BEEF | move.w #48879, %d6            | move.w #0xBEEF, %d6
+4E75      | rts                           | rts

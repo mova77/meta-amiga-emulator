@@ -1,0 +1,8 @@
+# SPDX-License-Identifier: GPL-3.0-or-later
+# Copyright (C) 2026 The meta-amiga authors
+#
+# The one place the M68k toolchain version is named. Every script under tools/m68k/
+# sources this file; nothing else in the repository repeats the tag. Moving the pin is a
+# deliberate, reviewed change (docs/spikes/SPIKE-S3-m68k-toolchain.md section 6), and it is
+# followed by running tools/m68k/check-encodings.sh against the new build.
+LLVM_TAG=llvmorg-22.1.8
