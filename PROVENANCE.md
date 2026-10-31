@@ -24,6 +24,12 @@ Permitted sources for hardware behaviour:
   format, LHA, DMS).
 - Reading *behaviour* — not source — of another emulator, i.e. running it and observing
   what it does. Observation of output is fact; transcription of implementation is not.
+  This includes an emulator or CPU-core library **installed as a tool** and driven through
+  its public interface to observe our own programs (for example a test oracle under
+  `tools/` that runs a blob and records register and bus writes), provided that the tool is
+  optional (its check skips cleanly when it is absent), that none of its source is read,
+  vendored or linked into anything this project ships, and that the check states which tool
+  and version it observed.
 
 ## What contributors may not use
 
