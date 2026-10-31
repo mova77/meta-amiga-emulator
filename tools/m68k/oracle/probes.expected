@@ -1,15 +1,19 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
 # Copyright (C) 2026 The meta-amiga authors
 #
-# Single instructions assembled one at a time, to track what the backend's assembler can
-# and cannot do:   <source, \n = newline> | <encoding from the manual, hex> | <status>
+# Single instructions assembled one at a time:
+#   <source, \n = newline> | <encoding from the manual, hex> | <LLVM status>
 #
-#   ok     must assemble to exactly this encoding
-#   xfail  known at the pinned tag to be rejected or to assemble to something else; the
-#          check reports it, and fails if it starts to work so the marker is removed on
-#          purpose when the pin moves
+# GNU as must assemble every row to exactly the encoding: that is the gate. The status records
+# what the LLVM M68k assembler does with it at the pinned tag, as documentation of the backend:
 #
-# Each xfail is a hole a test-program author falls into; SPIKE-S3 section 4 lists them.
+#   ok        LLVM assembles it to this encoding too
+#   xfail     LLVM rejects it or assembles something else
+#   differs <hex>   LLVM assembles a different valid encoding (here, a different branch size)
+#
+# At the pinned LLVM tag the check fails if a row stops matching its status (an xfail that
+# starts to work is the one to notice); against another clang it only prints a note. Each
+# xfail is a hole in LLVM's assembler; SPIKE-S3 section 4 lists them.
 moveq #9, %d4                    | 7809           | ok
 move.w %sr, %d1                  | 40C1           | ok
 move.w %d0, %sr                  | 46C0           | ok
@@ -30,3 +34,5 @@ move.w #0x2700, %sr              | 46FC 2700      | xfail
 move.w %d0, 0xDFF180             | 33C0 00DF F180 | xfail
 move.b %d0, 0xDFF180             | 13C0 00DF F180 | xfail
 jmp 0x40000                      | 4EF9 0004 0000 | xfail
+move.w #0x7FFF, 0xDFF09A         | 33FC 7FFF 00DF F09A | xfail
+1:\nbeq 1b                       | 6700 FFFE      | differs 67FE

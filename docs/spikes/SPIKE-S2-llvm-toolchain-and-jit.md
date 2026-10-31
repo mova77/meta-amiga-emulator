@@ -34,7 +34,8 @@ not from recollection.
 `isa-68882`, with processor definitions for each — **exactly the CPU set this project
 emulates** (specification §2.2). The backend carries an AsmParser, a Disassembler and a
 GlobalISel implementation (`GISel/M68kInstructionSelector.cpp`, `M68kLegalizerInfo.cpp`,
-`M68kRegisterBankInfo.cpp`).
+`M68kRegisterBankInfo.cpp`). SPIKE-S3 §4 found the AsmParser incomplete, so hand-written
+assembly is assembled by GNU as and LLVM is used for C.
 
 This matters because two pieces of work require *writing 68k code*, and both currently
 imply hand-written assembly:
@@ -122,13 +123,13 @@ support merely means the option will still be there when the benchmark data exis
 
 - ~~Whether to build and pin an M68k toolchain, and where it lives — a per-developer build,
   a container image, or a CI-built artefact.~~ Answered by [SPIKE-S3](SPIKE-S3-m68k-toolchain.md)
-  §5 and §6: a source build of clang only, pinned in one file, with a CI-built artefact as a
-  cache of the same recipe.
+  §5 and §6: a source build of clang, pinned in one file together with the GNU binutils that
+  assemble and link, with a CI-built artefact as a cache of the clang recipe.
 - Whether the filesystem handler's ELF-to-hunk step is a bespoke tool or an existing free
   one, and what that implies for the licence audit.
 - ~~Whether the experimental target's stability is good enough to depend on, or whether the
   toolchain is pinned to one LLVM release and upgraded deliberately.~~ Answered by
   [SPIKE-S3](SPIKE-S3-m68k-toolchain.md) §4 and §6: pinned to one release and upgraded
-  deliberately behind oracle checks; the distro's clang 18 is not acceptable.
+  deliberately behind oracle checks; the distro's clang 18 is not the supported toolchain.
 - For phase 7: measured compile latency of an ORC pipeline against a hand-written dynarec,
   on representative translated blocks. Until that exists the fork stays open.

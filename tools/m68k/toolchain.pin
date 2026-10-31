@@ -4,5 +4,21 @@
 # The one place the M68k toolchain version is named. Every script under tools/m68k/
 # sources this file; nothing else in the repository repeats the tag. Moving the pin is a
 # deliberate, reviewed change (docs/spikes/SPIKE-S3-m68k-toolchain.md section 6), and it is
-# followed by running tools/m68k/check-encodings.sh against the new build.
+# followed by running tools/m68k/check.sh against the new build.
 LLVM_TAG=llvmorg-22.1.8
+
+# GNU binutils: the assembler (as), linker (ld), objcopy and objdump for the 68000. Hand-written
+# assembly goes through GNU as, not clang, because the LLVM M68k assembler is incomplete and in
+# places silently wrong (SPIKE-S3 section 4). The upstream release the checks were run against:
+BINUTILS_VERSION=2.42
+BINUTILS_URL=https://ftp.gnu.org/gnu/binutils/binutils-2.42.tar.xz
+BINUTILS_SHA256=f6e4d41fd5fc778b06b7891457b3620da5ecea1006c6a4a41ae998109f85a800
+# That release is git tag binutils-2_42 (commit c7f28aad0c99d1d2fec4e52ebfa3735d90ceb8e9) of
+# sourceware.org/git/binutils-gdb: the tarball's gas, ld, bfd, opcodes, binutils, libiberty
+# and include trees were compared with a checkout of the tag and differ only by the
+# generated lexer and parser sources a release carries (and CVS ignore lists).
+#
+# The distribution package that carries it, so no build is needed there:
+#   Ubuntu 24.04  binutils-m68k-linux-gnu 2.42-4ubuntu2.10   (apt install binutils-m68k-linux-gnu)
+# Any other version is acceptable if oracle 1 passes against it (check.sh says which it found);
+# tools/m68k/build-binutils.sh builds exactly this release where a distribution lacks it.

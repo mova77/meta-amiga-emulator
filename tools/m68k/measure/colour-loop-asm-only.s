@@ -5,7 +5,8 @@
  * The colour-loop program written the way it would be written without a C compiler: all
  * assembly. It exists only as the baseline for the effort measurement in
  * docs/spikes/SPIKE-S3-m68k-toolchain.md section 9, and is built by measure.sh, not shipped.
- * Same behaviour as programs/colour-loop: same register writes, same delay.
+ * Same behaviour as programs/colour-loop: same register writes, same delay. Assembled by
+ * GNU as, like every hand-written file here.
  */
 	.text
 	.globl	_start
@@ -21,11 +22,9 @@ again:
 	move.w	#0x00F0, (0x180,%a5)
 	moveq	#7, %d0
 	bsr.w	delay
-	bra	again
+	bra.s	again
 delay:
 1:	move.w	#0xFFFF, %d1
-2:	.short	0x51C9				/* dbra %d1, 2b */
-	.short	2b - .
-	.short	0x51C8				/* dbra %d0, 1b */
-	.short	1b - .
+2:	dbra	%d1, 2b
+	dbra	%d0, 1b
 	rts
