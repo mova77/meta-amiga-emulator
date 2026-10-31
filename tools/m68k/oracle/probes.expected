@@ -1,0 +1,32 @@
+# SPDX-License-Identifier: GPL-3.0-or-later
+# Copyright (C) 2026 The meta-amiga authors
+#
+# Single instructions assembled one at a time, to track what the backend's assembler can
+# and cannot do:   <source, \n = newline> | <encoding from the manual, hex> | <status>
+#
+#   ok     must assemble to exactly this encoding
+#   xfail  known at the pinned tag to be rejected or to assemble to something else; the
+#          check reports it, and fails if it starts to work so the marker is removed on
+#          purpose when the pin moves
+#
+# Each xfail is a hole a test-program author falls into; SPIKE-S3 section 4 lists them.
+moveq #9, %d4                    | 7809           | ok
+move.w %sr, %d1                  | 40C1           | ok
+move.w %d0, %sr                  | 46C0           | ok
+move.w %d0, (0x180,%a5)          | 3B40 0180      | ok
+move.l %d0, 0xDFF180             | 23C0 00DF F180 | ok
+lea 0xDFF000, %a5                | 4BF9 00DF F000 | ok
+movem.l %d0-%d2/%a0, -(%sp)      | 48E7 E080      | ok
+movem.l (%sp)+, %d0-%d2/%a0      | 4CDF 0107      | ok
+addq.l #1, %d3                   | 5283           | xfail
+subq.l #1, %d3                   | 5383           | xfail
+1:\ndbra %d4, 1b                 | 51CC FFFE      | xfail
+tst.w %d0                        | 4A40           | xfail
+clr.w %d0                        | 4240           | xfail
+swap %d0                         | 4840           | xfail
+stop #0x2700                     | 4E72 2700      | xfail
+move.w #0x2700, %sr              | 46FC 2700      | xfail
+1:\nbeq.s 1b                     | 67FE           | xfail
+move.w %d0, 0xDFF180             | 33C0 00DF F180 | xfail
+move.b %d0, 0xDFF180             | 13C0 00DF F180 | xfail
+jmp 0x40000                      | 4EF9 0004 0000 | xfail

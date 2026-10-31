@@ -36,3 +36,4 @@ media/
 .idea/
 .vscode/
 *.swp
+tools/m68k/out/
