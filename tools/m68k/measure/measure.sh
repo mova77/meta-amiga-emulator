@@ -5,15 +5,18 @@
 # The numbers behind SPIKE-S3 section 9: how much hand-written 68000 the C toolchain
 # removes. Counts lines of code (no comments, no blanks) and instructions.
 #
-# Usage: measure.sh [<toolchain-bin-dir>]
+# Usage: measure.sh [<llvm-bin-dir> [<binutils-bin-dir>]]     (as for check.sh)
 
 set -euo pipefail
 here=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
 m68k=$(dirname "$here")
 work=${M68K_WORK:-${XDG_CACHE_HOME:-$HOME/.cache}/meta-amiga/llvm-m68k}
 bin=${1:-$work/install/bin}
+export BINUTILS_BIN=${2:-${BINUTILS_BIN:-}}
 out=${OUT:-$m68k/out/measure}
 mkdir -p "$out"
+gnu() { if [ -n "$BINUTILS_BIN" ]; then echo "$BINUTILS_BIN/m68k-linux-gnu-$1"; else command -v "m68k-linux-gnu-$1"; fi; }
+as=$(gnu as); oc=$(gnu objcopy); od=$(gnu objdump)
 
 # Lines of code: strip /* ... */ spans (single or multi line) and // comments, drop blanks.
 loc() { python3 -I - "$@" <<'PY'
@@ -25,17 +28,17 @@ for path in sys.argv[1:]:
 print(n)
 PY
 }
-# Instructions in an ELF's .text from the disassembler. Alignment padding prints as
-# <unknown> and is not counted.
-insns() { "$bin/llvm-objdump" -d --no-show-raw-insn "$1" | grep -E '^\s+[0-9a-f]+:' | grep -vc unknown; }
+# Instructions in an ELF's code from GNU objdump: a line with an address and a mnemonic.
+# Alignment padding prints as "..." and is not counted.
+insns() { "$od" -d --no-show-raw-insn "$1" | grep -cE '^\s+[0-9a-f]+:\s+[a-z]'; }
 
 p=$m68k/programs
 echo "== colour-loop"
 "$m68k/build-program.sh" colour-loop "$bin" "$out/cl" >/dev/null
 echo "C + assembly : $(loc "$p"/colour-loop/main.c) C lines, $(loc "$p"/colour-loop/start.s "$p"/colour-loop/delay.s) assembly lines"
-"$bin/clang" --target=m68k -mcpu=M68000 -c "$here/colour-loop-asm-only.s" -o "$out/asm-only.o"
+"$as" -m68000 -o "$out/asm-only.o" "$here/colour-loop-asm-only.s"
 echo "assembly only: 0 C lines, $(loc "$here/colour-loop-asm-only.s") assembly lines"
-"$bin/llvm-objcopy" -O binary -j .text "$out/asm-only.o" "$out/asm-only.bin"
+"$oc" -O binary -j .text "$out/asm-only.o" "$out/asm-only.bin"
 echo "blob bytes   : C + assembly $(stat -c %s "$out/cl/colour-loop.bin"), assembly only $(stat -c %s "$out/asm-only.bin")"
 
 echo "== selftest (what the compiler writes for you)"

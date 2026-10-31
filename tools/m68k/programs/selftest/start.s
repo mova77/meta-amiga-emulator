@@ -5,4 +5,4 @@
 	.globl	_start
 _start:
 	bsr.w	run_selftest
-1:	bra	1b			/* park */
+1:	bra.s	1b			/* park */

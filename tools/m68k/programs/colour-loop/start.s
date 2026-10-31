@@ -6,4 +6,4 @@
 	.globl	_start
 _start:
 	bsr.w	c_main
-1:	bra	1b			/* c_main never returns; park if it ever does */
+1:	bra.s	1b			/* c_main never returns; park if it ever does */

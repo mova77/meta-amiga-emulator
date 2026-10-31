@@ -7,11 +7,11 @@
  *
  * It is a program as well as a table: entered with a0 = $100 and sp = $8000 it ends parked
  * at `done` with the registers kernel.expected states. Covers MOVE in several effective
- * address modes, MOVEQ, ADD, LEA, Bcc, DBRA, MOVEM both ways, JSR and RTS.
+ * address modes, MOVEQ, ADD, ADDQ, LEA, Bcc, DBRA, MOVEM both ways, JSR and RTS.
  *
- * Two instructions are written with .short because the backend has no assembler entry
- * for them: ADDQ and DBcc. Their encodings are from the manual; the expected file marks
- * them raw, and only oracle 3 can say anything about them.
+ * It is assembled by GNU as (check_encodings.py); every instruction is the real mnemonic.
+ * Branches carry explicit sizes: GNU as encodes an unsized Bcc, BRA or BSR as the word form
+ * whatever the distance, and the expected encodings are the short ones.
  */
 	.text
 	.globl	kernel
@@ -22,20 +22,19 @@ kernel:
 	move.w	%d0, %d1
 	add.w	%d1, %d0
 	add.l	%d2, %d0
-	.short	0x5283				/* addq.l #1, %d3 */
+	addq.l	#1, %d3
 	move.l	%d0, -(%sp)
 	move.l	(%sp)+, %d3
 	lea	(8,%a0), %a1
 	moveq	#0, %d5
 loop:
 	add.w	%d4, %d5
-	.short	0x51CC				/* dbra %d4, loop */
-	.short	loop - .
+	dbra	%d4, loop
 	cmp.l	%d1, %d1
-	beq	skip
+	beq.s	skip
 	move.w	#0xDEAD, %d7
 skip:
-	bne	skip2
+	bne.s	skip2
 	moveq	#1, %d7
 skip2:
 	movem.l	%d0-%d2/%a0, -(%sp)
@@ -47,7 +46,7 @@ skip2:
 	lea	(sub,%pc), %a1
 	jsr	(%a1)
 done:
-	bra	done
+	bra.s	done
 sub:
 	move.w	#0xBEEF, %d6
 	rts
