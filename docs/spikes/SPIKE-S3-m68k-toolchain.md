@@ -365,6 +365,27 @@ algorithm is the published one and the script verifies its own output, but the R
 asked), that `$DFF180` takes effect when written from the code as built, and that the `DBRA` loop
 runs at the cycle count the manual gives.
 
+### 8.1 A stand-in run in an existing emulator
+
+Before any real A500 run, the disk image was booted in an existing emulator, used as an
+observation instrument under `PROVENANCE.md` (its behaviour is observed, its source is not
+read):
+
+| | |
+|---|---|
+| Instrument | FS-UAE (version not recorded), Amiga 500 PAL model, 512 KiB chip RAM |
+| ROM | Kickstart 1.3, revision 34.5, identified by SHA-1 `891e9a547772fe0c6c19b610baf8bc4ea7fcb785` and by its header; a dump of a ROM the operator owns, not distributed |
+| Disk | `colour-loop.adf` built by `check.sh` at the pinned toolchain (SHA-256 prefix `7edeb41b64c8bb13`) in DF0: |
+| Observed | the machine boots from the disk, and the whole screen alternates red and green; each colour lasts a little under one second by eye |
+| Expected | red, then green, alternating, about 0.74 s per colour |
+
+What this settles: Kickstart 1.3's boot code accepts the boot block's checksum and runs the
+stub, the stub copies the program to `$40000` and jumps to it, and the `COLOR00` writes take
+effect in the order the CPU model saw (oracle 3). What it does not settle: the timing seen by
+eye is not a measurement, and an emulator's cycle accuracy depends on its configuration. The
+`DBRA` cycle count on real hardware therefore stays open for oracle 2 proper. A stopwatch over
+ten colour changes (expected about 7.4 s) would turn this run into a coarse timing check.
+
 ## 9. Does it make the measurement programs easier?
 
 Measured on the test program, in `tools/m68k/measure/measure.sh`, with the real mnemonics; no
