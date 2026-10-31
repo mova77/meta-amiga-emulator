@@ -1,0 +1,15 @@
+# SPDX-License-Identifier: GPL-3.0-or-later
+# Copyright (C) 2026 The meta-amiga authors
+#
+# The hand-written assembly of the test programs, with the bytes of its .text derived by hand
+# from the 68000 Programmer's Reference Manual:
+#   <source, relative to tools/m68k> | <symbols for --defsym, NAME=VALUE, or -> | <encoding, hex>
+#
+# colour_delay: MOVE.L (4,SP),D0; MOVE.W #$FFFF,D1; DBRA D1 to itself; DBRA D0 to the MOVE.W;
+# RTS. A DBcc displacement is counted from the address of its extension word: -2 for the
+# one-instruction loop, -10 for the outer one.
+programs/colour-loop/delay.s | - | 202F 0004  323C FFFF  51C9 FFFE  51C8 FFF6  4E75
+# The boot block stub with a 98-byte blob (49 words) linked at $40000: MOVE.W #$7FFF,$DFF09A;
+# LEA (blob,PC),A0 with blob 22 bytes past its extension word; MOVEA.L #$40000,A1;
+# MOVEA.L A1,A2; MOVE.W #48,D0; MOVE.W (A0)+,(A1)+; DBRA D0 back to it (-4); JMP (A2).
+bootblock/bootblock.s | LOAD_ADDR=0x40000 BLOB_WORDS=49 | 33FC 7FFF 00DF F09A  41FA 0016  227C 0004 0000  2449  303C 0030  32D8  51C8 FFFC  4ED2
