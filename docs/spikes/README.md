@@ -14,6 +14,7 @@ guessed constant in a foundational table is worse than an admitted gap.
 | [SPIKE-S0](SPIKE-S0-core-timeline.md) | The core timeline: event scheduler, DMA slot allocator, bus arbitration | Draft |
 | [SPIKE-S1](SPIKE-S1-m68k-instruction-table.md) | The 68k instruction table schema and its build-time generator | Accepted |
 | [SPIKE-S2](SPIKE-S2-llvm-toolchain-and-jit.md) | LLVM: an M68k toolchain now, a JIT backend later | Draft |
+| [SPIKE-S3](SPIKE-S3-m68k-toolchain.md) | A pinned M68k toolchain: does it work, and what is the cheapest form to depend on | Draft |
 
 ## Status vocabulary
 

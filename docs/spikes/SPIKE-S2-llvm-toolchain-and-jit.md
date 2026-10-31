@@ -120,11 +120,15 @@ support merely means the option will still be there when the benchmark data exis
 
 ## 7. Open items
 
-- Whether to build and pin an M68k toolchain, and where it lives — a per-developer build,
-  a container image, or a CI-built artefact. Raised as its own story.
+- ~~Whether to build and pin an M68k toolchain, and where it lives — a per-developer build,
+  a container image, or a CI-built artefact.~~ Answered by [SPIKE-S3](SPIKE-S3-m68k-toolchain.md)
+  §5 and §6: a source build of clang only, pinned in one file, with a CI-built artefact as a
+  cache of the same recipe.
 - Whether the filesystem handler's ELF-to-hunk step is a bespoke tool or an existing free
   one, and what that implies for the licence audit.
-- Whether the experimental target's stability is good enough to depend on, or whether the
-  toolchain is pinned to one LLVM release and upgraded deliberately.
+- ~~Whether the experimental target's stability is good enough to depend on, or whether the
+  toolchain is pinned to one LLVM release and upgraded deliberately.~~ Answered by
+  [SPIKE-S3](SPIKE-S3-m68k-toolchain.md) §4 and §6: pinned to one release and upgraded
+  deliberately behind oracle checks; the distro's clang 18 is not acceptable.
 - For phase 7: measured compile latency of an ORC pipeline against a hand-written dynarec,
   on representative translated blocks. Until that exists the fork stays open.
