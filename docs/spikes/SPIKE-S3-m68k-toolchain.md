@@ -386,6 +386,48 @@ eye is not a measurement, and an emulator's cycle accuracy depends on its config
 `DBRA` cycle count on real hardware therefore stays open for oracle 2 proper. A stopwatch over
 ten colour changes (expected about 7.4 s) would turn this run into a coarse timing check.
 
+A later recording of the same run, in FS-UAE 3.2.35, was timed frame by frame: 744.6 ms per
+colour, ± 0.3 ms (1σ), over 23 colour changes.
+
+### 8.2 The stand-in as a script
+
+`check.sh` now repeats the stand-in on every run where the tools are installed:
+`oracle/boot_colour_loop.sh` boots `colour-loop.adf` in FS-UAE under a virtual X server (Xvfb),
+ffmpeg records a 16 × 16 patch at the centre of the screen for 30 s, and
+`oracle/colour_period.py` classifies each frame as red, green or other, places each change
+halfway between the frames either side of it, and fits the change times by least squares. The
+check passes when the first colour is red, the colours alternate, there are at least ten changes,
+and the period is within 2 % of the prediction. It skips (exit 77) when FS-UAE, Xvfb or ffmpeg
+is absent, and states the tool versions, the ROM and the disk's SHA-256 on every run.
+
+The ROM is FS-UAE's built-in AROS replacement, which is redistributable, so the check needs no
+Kickstart. `KICKSTART=<path>` runs it with a ROM the operator owns instead. No ROM is in the
+repository or fetched by the script.
+
+The prediction is the 68000 manual's instruction timings for the built listing with no wait
+states: the delay loop (8 passes of `MOVE.W #imm,Dn`, 65 535 taken and one expired `DBRA`, and
+the outer `DBRA`) plus the store, call and return around it, 5 243 157 cycles on average over
+the two colours, or 739.1 ms at 7.093 79 MHz.
+
+| | |
+|---|---|
+| Instrument | FS-UAE 3.1.66 (Ubuntu 24.04 package), Amiga 500 PAL model at FS-UAE's default accuracy for it (cycle-exact CPU and blitter, 512 KiB chip RAM), under Xvfb 21.1.12; ffmpeg 6.1.1 |
+| ROM | FS-UAE's built-in AROS replacement |
+| Disk | `colour-loop.adf` built by `check.sh` with the distro's clang 18.1.3 and GNU binutils 2.42 (SHA-256 `0958e467857017487647e215b978f10f166975224cbd020364880ff1184dbd1a`), not the pinned clang |
+| Observed | AROS boots the disk; red first, then strict alternation; 26 changes in 30 s |
+| Measured | 744.5 ms per colour, ± 0.2 ms (1σ), residual RMS 5.7 ms; the same figure on two runs |
+| Predicted | 739.1 ms per colour |
+| Difference | +0.73 % |
+
+What this adds to §8.1: a second ROM accepts the boot block, and the period is a number a script
+reads rather than one read from a video by hand. The +0.73 % difference is the one the FS-UAE
+3.2.35 recording showed (+0.74 %). It now holds across two FS-UAE versions, two ROMs, two hosts
+and two ways of capturing the screen, one of them with no 60 Hz display in the path. So it is
+most likely in the emulated machine rather than in how the screen was captured. The program runs
+from chip RAM, and whether that is the cause (for example memory refresh or odd-cycle alignment
+taking bus slots from the CPU) is not established here. It is a question for the real A500 and
+for this project's own slot allocator, and nothing in this section settles real-hardware timing.
+
 ## 9. Does it make the measurement programs easier?
 
 Measured on the test program, in `tools/m68k/measure/measure.sh`, with the real mnemonics; no
